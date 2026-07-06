@@ -1,0 +1,36 @@
+classes:
+  0:
+    name: others
+    display_name: Others
+    color: "#808080"
+  1:
+    name: rice
+    display_name: Rice
+    color: "#1a9850"
+  2:
+    name: wheat
+    display_name: Wheat
+    color: "#ffd92f"
+  3:
+    name: maize
+    display_name: Maize
+    color: "#f46d43"
+  4:
+    name: rapeseed
+    display_name: Rapeseed
+    color: "#e6ab02"
+
+agrifieldnet_to_target:
+  0: 0
+  1: 2
+  2: 4
+  3: 0
+  4: 0
+  5: 0
+  6: 0
+  7: 3
+  8: 0
+  9: 0
+  10: 0
+  11: 0
+  12: 1

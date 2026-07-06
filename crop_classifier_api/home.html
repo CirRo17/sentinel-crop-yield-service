@@ -1,0 +1,816 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>作物分类与估产服务</title>
+  <style>
+    :root {
+      --bg: #f4f8fd;
+      --panel: #ffffff;
+      --line: #d8e7f5;
+      --ink: #193252;
+      --muted: #6f86a2;
+      --brand: #1ea0ff;
+      --brand-soft: #e8f5ff;
+      --good: #79cf4b;
+      --good-soft: #eef9e7;
+      --warn: #ffb534;
+      --warn-soft: #fff4de;
+      --violet: #7388c7;
+      --violet-soft: #eef2fb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+      color: var(--ink);
+    }
+    .shell {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 22px 0 40px;
+    }
+    .eyebrow {
+      font-size: 36px;
+      color: var(--ink);
+      font-weight: 800;
+      line-height: 1.15;
+    }
+    h1, h2, h3, p, pre { margin: 0; }
+    h1 {
+      margin-top: 10px;
+      font-size: 18px;
+      line-height: 1.45;
+      letter-spacing: 0;
+      font-weight: 700;
+      color: #355b88;
+    }
+    .sub {
+      margin-top: 10px;
+      color: var(--muted);
+      line-height: 1.6;
+      max-width: 920px;
+      font-size: 13px;
+    }
+    .base-card {
+      margin-top: 24px;
+      padding: 18px 20px 20px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: linear-gradient(180deg, #eaf5ff 0%, #deefff 100%);
+    }
+    .base-title {
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .base-title svg {
+      width: 15px;
+      height: 15px;
+      color: #90a7c2;
+      flex: 0 0 auto;
+    }
+    .base-row {
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .base-url {
+      min-width: 252px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: #fff;
+      border: 1px solid #cfe4f6;
+      color: #1d9aff;
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .copy-btn {
+      border: 1px solid #cdddf0;
+      background: rgba(255,255,255,0.82);
+      color: var(--ink);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .tiny {
+      margin-top: 10px;
+      color: #8fa6bf;
+      font-size: 12px;
+    }
+    .section {
+      margin-top: 30px;
+    }
+    .workflow {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .step {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .step-no {
+      color: var(--brand);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .step-title {
+      margin-top: 8px;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .step-text {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .cards {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 18px;
+      min-height: 148px;
+    }
+    .card.active {
+      border-color: #7ec7ff;
+      box-shadow: 0 0 0 1px #bfe5ff inset;
+    }
+    .card-head {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+    }
+    .icon {
+      width: 46px;
+      height: 46px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+    }
+    .icon svg {
+      width: 22px;
+      height: 22px;
+      stroke-width: 2.1;
+    }
+    .icon.blue { background: var(--brand-soft); color: var(--brand); }
+    .icon.violet { background: var(--violet-soft); color: #47619d; }
+    .icon.orange { background: var(--warn-soft); color: var(--warn); }
+    .icon.green { background: #e8f8de; color: #6cc63e; }
+    .card p {
+      margin-top: 6px;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 14px;
+    }
+    .ep-row {
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .method-pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .post-pill { background: #eaf4ff; color: #4a95ff; }
+    .get-pill { background: #eef9e7; color: #64ba34; }
+    .ep-text {
+      color: #7f96af;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+    }
+    .available {
+      display: inline-block;
+      margin-top: 10px;
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      background: var(--good-soft);
+      color: var(--good);
+    }
+    .tabs {
+      margin-top: 18px;
+      display: flex;
+      gap: 24px;
+      border-bottom: 1px solid var(--line);
+    }
+    .tab-btn {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 15px;
+      font-weight: 700;
+      padding: 0 0 12px;
+      cursor: pointer;
+    }
+    .tab-btn.active {
+      color: var(--brand);
+      box-shadow: inset 0 -2px 0 0 var(--brand);
+    }
+    .code-wrap {
+      border: 1px solid var(--line);
+      border-top: 0;
+      border-radius: 0 0 10px 10px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .code-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      border-bottom: 1px solid #edf3f8;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .code-copy {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 2px;
+    }
+    .code-copy svg {
+      width: 16px;
+      height: 16px;
+    }
+    pre {
+      padding: 18px 16px 22px;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      overflow-x: auto;
+    }
+    .hidden { display: none; }
+    table {
+      width: 100%;
+      margin-top: 14px;
+      border-collapse: collapse;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    th, td {
+      text-align: left;
+      padding: 12px 14px;
+      font-size: 14px;
+      border-bottom: 1px solid #eef4f9;
+    }
+    th {
+      color: var(--muted);
+      background: #fbfdff;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .method {
+      display: inline-block;
+      min-width: 58px;
+      text-align: center;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .method.get { background: #eef9e7; color: #64ba34; }
+    .method.post { background: #eaf4ff; color: #4a95ff; }
+    .endpoint {
+      color: var(--brand);
+      font-family: Consolas, monospace;
+      font-size: 13px;
+    }
+    .ws-box {
+      margin-top: 14px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+    .note-box {
+      margin-top: 14px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+    .note-box p + p {
+      margin-top: 10px;
+    }
+    .ws-row + .ws-row {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #edf3f8;
+    }
+    .ws-label {
+      font-weight: 700;
+      font-size: 15px;
+    }
+    .ws-url {
+      margin-top: 6px;
+      color: var(--brand);
+      font-family: Consolas, monospace;
+      font-size: 13px;
+      word-break: break-all;
+    }
+    .footer {
+      margin-top: 28px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 13px;
+    }
+    .footer a {
+      color: var(--brand);
+      text-decoration: none;
+    }
+    @media (max-width: 900px) {
+      .workflow { grid-template-columns: 1fr 1fr; }
+      .cards { grid-template-columns: 1fr; }
+      .base-url {
+        min-width: 0;
+        width: 100%;
+        font-size: 18px;
+      }
+    }
+    @media (max-width: 640px) {
+      .shell { width: min(100% - 20px, 1180px); padding-top: 18px; }
+      .eyebrow { font-size: 30px; }
+      h1 { font-size: 16px; }
+      .workflow { grid-template-columns: 1fr; }
+      .tabs { gap: 16px; overflow-x: auto; }
+      th, td { padding: 10px 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="eyebrow">农作物分类与估产在线服务</div>
+    <h1>通过 API 接口远程调用作物分类与产量估算能力，集成到业务系统中</h1>
+    <p class="sub">服务采用工程化 Web API 形式：先上传影像，启动分类推理，下载分类图和置信度图；再基于分类结果调用估产接口，按作物类型估算面积、单产和总产。分类阶段完成波段读取、缩放归一化、特征构建和模型预测；估产阶段基于 NDVI/LAI 植被指数与作物掩膜进行产量回归。</p>
+
+    <div class="base-card">
+      <div class="base-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10 13a5 5 0 0 1 0-7l1.5-1.5a5 5 0 0 1 7 7L17 13"/>
+          <path d="M14 11a5 5 0 0 1 0 7L12.5 19.5a5 5 0 0 1-7-7L7 11"/>
+        </svg>
+        <span>服务地址</span>
+      </div>
+      <div class="base-row">
+        <div class="base-url" id="api-base">__APP_BASE__</div>
+        <button class="copy-btn" id="copy-base-btn" type="button">复制</button>
+      </div>
+      <div class="tiny">当前页面、Swagger 文档和接口都挂在这个服务地址下。接口请求统一使用 <code>/api/...</code> 路径，例如 <code>/api/data/upload</code>、<code>/api/data/upload-parcels</code>、<code>/api/infer/start</code>。</div>
+    </div>
+
+    <div class="section">
+      <div class="eyebrow" style="font-size:24px;color:#355b88;font-weight:700;">对接流程</div>
+      <div class="workflow">
+        <div class="step">
+          <div class="step-no">STEP 1</div>
+          <div class="step-title">上传影像</div>
+          <div class="step-text">调用 <code>/api/data/upload</code> 上传 GeoTIFF，服务返回 <code>file_id</code> 作为推理输入标识。</div>
+        </div>
+        <div class="step">
+          <div class="step-no">STEP 2</div>
+          <div class="step-title">上传地块</div>
+          <div class="step-text">如需 Shapefile 结果，调用 <code>/api/data/upload-parcels</code> 上传调用方研究区的地块 Shapefile ZIP，服务返回 <code>parcel_file_id</code>。</div>
+        </div>
+        <div class="step">
+          <div class="step-no">STEP 3</div>
+          <div class="step-title">启动推理</div>
+          <div class="step-text">调用 <code>/api/infer/start</code>，传入 <code>file_id</code>、波段编号和缩放参数；需要地块结果时同时传入 <code>parcel_file_id</code>。</div>
+        </div>
+        <div class="step">
+          <div class="step-no">STEP 4</div>
+          <div class="step-title">查询状态</div>
+          <div class="step-text">轮询 <code>/api/infer/status/{task_id}</code>，查看进度、整幅影像的主要类别结果以及可下载的结果地址。</div>
+        </div>
+        <div class="step">
+          <div class="step-no">STEP 5</div>
+          <div class="step-title">下载结果</div>
+          <div class="step-text">任务完成后下载分类图、置信度图和元数据；传入地块数据时可额外下载地块级 Shapefile ZIP。</div>
+        </div>
+        <div class="step">
+          <div class="step-no">STEP 6</div>
+          <div class="step-title">估产</div>
+          <div class="step-text">基于分类结果调用 <code>/api/yield/estimate</code>，传入推理 task_id，按作物类型估算产量（kg/ha）、面积和总产。</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="eyebrow" style="font-size:24px;color:#355b88;font-weight:700;">接口能力</div>
+      <div class="cards">
+        <div class="card">
+          <div class="card-head">
+            <div class="icon blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3v4"/><path d="M12 17v4"/><path d="M3 12h4"/><path d="M17 12h4"/><circle cx="12" cy="12" r="4"/></svg>
+            </div>
+            <div>
+              <h3>影像上传</h3>
+              <p>接收多波段 GeoTIFF 输入，生成可追踪的文件标识，作为后续推理任务的输入。</p>
+              <div class="ep-row">
+                <span class="method-pill post-pill">POST</span>
+                <span class="ep-text">/api/data/upload</span>
+              </div>
+              <span class="available">可用</span>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div class="icon violet">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><ellipse cx="12" cy="12" rx="8.5" ry="5.5"/><circle cx="12" cy="12" r="2.5"/></svg>
+            </div>
+            <div>
+              <h3>语义分类</h3>
+              <p>按模型需要自动做缩放、归一化和指数构建，输出分类图；如传入地块数据，同步生成地块级多数类别结果。</p>
+              <div class="ep-row">
+                <span class="method-pill post-pill">POST</span>
+                <span class="ep-text">/api/infer/start</span>
+              </div>
+              <span class="available">可用</span>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div class="icon orange">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"/></svg>
+            </div>
+            <div>
+              <h3>状态轮询</h3>
+              <p>异步任务模式，查询进度、有效像元数量、整幅影像的主要类别结果和下载地址。</p>
+              <div class="ep-row">
+                <span class="method-pill get-pill">GET</span>
+                <span class="ep-text">/api/infer/status/{task_id}</span>
+              </div>
+              <span class="available">可用</span>
+            </div>
+          </div>
+        </div>
+        <div class="card active">
+          <div class="card-head">
+            <div class="icon green">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 3h14"/><path d="M5 8h14"/><path d="M5 13h14"/><path d="M5 18h14"/></svg>
+            </div>
+            <div>
+              <h3>结果下载</h3>
+              <p>统一管理分类结果、置信度图、元数据 JSON；传入地块数据时可下载地块级 Shapefile ZIP。</p>
+              <div class="ep-row">
+                <span class="method-pill get-pill">GET</span>
+                <span class="ep-text">/api/infer/download/*</span>
+              </div>
+              <span class="available">可用</span>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div class="icon blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3c-3.3 0-6.4 1.1-8.8 3L12 21l8.8-15C17.4 4.1 14.3 3 12 3z"/><line x1="12" y1="21" x2="12" y2="14"/></svg>
+            </div>
+            <div>
+              <h3>产量估算</h3>
+              <p>在分类完成后，基于 NDVI 或 LAI 植被指数按作物估算逐像素产量，返回面积、单产、总产及不确定性评估。</p>
+              <div class="ep-row">
+                <span class="method-pill post-pill">POST</span>
+                <span class="ep-text">/api/yield/estimate</span>
+              </div>
+              <span class="available">可用</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="eyebrow" style="font-size:24px;color:#355b88;font-weight:700;">调用示例</div>
+      <div class="tabs">
+        <button class="tab-btn active" type="button" data-target="curl">cURL</button>
+        <button class="tab-btn" type="button" data-target="python">Python</button>
+        <button class="tab-btn" type="button" data-target="javascript">JavaScript</button>
+      </div>
+      <div class="code-wrap">
+        <div class="code-head">
+          <span id="code-title">BASH</span>
+          <button class="code-copy" type="button" id="copy-code-btn" aria-label="复制代码">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="9" y="9" width="10" height="10" rx="2"/><rect x="5" y="5" width="10" height="10" rx="2"/></svg>
+          </button>
+        </div>
+        <pre id="code-curl"># 1. 上传原始 Sentinel-2 影像（文件名需含日期，如 202504、2025-04）
+#    同月的多景会自动归组，服务端做对齐+中值合成
+curl -X POST __API_BASE__/data/upload -F "file=@202504_S2_west.tif"
+curl -X POST __API_BASE__/data/upload -F "file=@202504_S2_east.tif"
+curl -X POST __API_BASE__/data/upload -F "file=@202507_S2_full.tif"
+curl -X POST __API_BASE__/data/upload -F "file=@202508_S2_north.tif"
+curl -X POST __API_BASE__/data/upload -F "file=@202508_S2_south.tif"
+
+# 2. 上传地块数据（可选）
+curl -X POST __API_BASE__/data/upload-parcels -F "file=@parcels.zip"
+
+# 3. 启动推理（只需平铺 file_ids，服务端按文件名日期自动分组）
+curl -X POST __API_BASE__/infer/start -H "Content-Type: application/json" \
+  -d '{"file_ids": ["id1","id2","id3","id4","id5"], "parcel_file_id": "parcel-id"}'
+
+# 4. 查询任务状态
+curl __API_BASE__/infer/status/{task_id}
+
+# 5. 下载分类结果
+curl "__API_BASE__/infer/download/{task_id}?format=classification" -o classification.tif
+
+# 5b. 下载地块级 Shapefile
+curl "__API_BASE__/infer/download/{task_id}?format=shp" -o parcels.zip
+
+# 6. 启动估产任务
+curl -X POST __API_BASE__/yield/estimate \
+  -H "Content-Type: application/json" \
+  -d '{"task_id": "{task_id}", "index": "ndvi"}'
+
+# 7. 查询估产状态
+curl __API_BASE__/yield/status/yield_{task_id}
+
+# 8. 下载估产结果
+curl "__API_BASE__/yield/download/yield_{task_id}?format=metadata" -o yield.json</pre>
+        <pre id="code-python" class="hidden">import requests
+import time
+
+BASE = "__API_BASE__"
+
+# 上传原始影像（文件名含日期，如 202504_S2_west.tif）
+file_ids = []
+for path in ["202504_S2_west.tif", "202504_S2_east.tif",
+             "202507_S2_full.tif", "202508_S2_north.tif", "202508_S2_south.tif"]:
+    with open(path, "rb") as f:
+        upload = requests.post(f"{BASE}/data/upload", files={"file": f}).json()
+    file_ids.append(upload["file_id"])
+
+# 可选：上传地块 Shapefile ZIP
+with open("your_parcels.zip", "rb") as f:
+    parcel = requests.post(f"{BASE}/data/upload-parcels", files={"file": f}).json()
+
+# 启动推理（平铺 file_ids，服务端自动按文件名日期分组+合成）
+task = requests.post(
+    f"{BASE}/infer/start",
+    json={"file_ids": file_ids, "parcel_file_id": parcel.get("parcel_file_id")},
+).json()
+
+while True:
+    status = requests.get(
+        f"{BASE}/infer/status/{task['task_id']}",
+    ).json()
+    print(status["status"], status["progress"], status.get("top_predictions"))
+    if status["status"] in ("completed", "failed"):
+        break
+    time.sleep(1)
+
+# 5. 启动估产
+yield_task = requests.post(
+    f"{BASE}/yield/estimate",
+    json={"task_id": task["task_id"], "index": "ndvi"},
+).json()
+
+while True:
+    ys = requests.get(
+        f"{BASE}/yield/status/{yield_task['yield_task_id']}",
+    ).json()
+    print(ys["status"], ys["progress"])
+    if ys["status"] in ("completed", "failed"):
+        if ys.get("summary"):
+            print("总产:", ys["summary"]["total_yield_kg"], "kg")
+            for crop in ys.get("crops", []):
+                print(f"  {crop['label']}: {crop['area_ha']:.1f} ha, {crop['mean_yield_kg_ha']:.1f} kg/ha")
+        break
+    time.sleep(0.5)</pre>
+        <pre id="code-javascript" class="hidden">const base = "__API_BASE__";
+
+// 上传多景多时相影像（文件名含日期）
+const fileIds = [];
+for (const file of [file1, file2, file3, file4, file5]) {
+  const form = new FormData();
+  form.append("file", file);
+  const resp = await fetch(`${base}/data/upload`, { method: "POST", body: form });
+  fileIds.push((await resp.json()).file_id);
+}
+
+// 可选：上传地块 Shapefile ZIP
+const parcelForm = new FormData();
+parcelForm.append("file", parcelInput.files[0]);
+const parcelResp = await fetch(`${base}/data/upload-parcels`, {
+  method: "POST", body: parcelForm
+});
+const parcel = await parcelResp.json();
+
+// 启动推理（平铺 file_ids，服务端自动按文件名日期分组+合成）
+const inferResp = await fetch(`${base}/infer/start`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    file_ids: fileIds,
+    parcel_file_id: parcel.parcel_file_id,
+  })
+});
+const task = await inferResp.json();
+console.log(task);
+
+// 5. 启动估产
+const yieldResp = await fetch(`${base}/yield/estimate`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ task_id: task.task_id, index: "ndvi" })
+});
+const yieldTask = await yieldResp.json();
+
+let yieldDone = false;
+while (!yieldDone) {
+  const ysResp = await fetch(`${base}/yield/status/${yieldTask.yield_task_id}`);
+  const ys = await ysResp.json();
+  if (ys.status === "completed" || ys.status === "failed") {
+    yieldDone = true;
+    console.log(ys.summary, ys.crops);
+  } else {
+    await new Promise(r => setTimeout(r, 500));
+  }
+}
+
+const ws = new WebSocket(`__WS_BASE__/ws/infer/${task.task_id}`);
+ws.onmessage = (event) => {
+  const status = JSON.parse(event.data);
+  console.log(status);
+};</pre>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="eyebrow" style="font-size:24px;color:#355b88;font-weight:700;">API 接口参考</div>
+      <table>
+        <thead>
+          <tr>
+            <th>方法</th>
+            <th>接口路径</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/health</td><td>服务健康检查</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/classes</td><td>查看分类编码表与颜色映射</td></tr>
+          <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/data/upload</td><td>上传 GeoTIFF 影像</td></tr>
+          <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/data/upload-parcels</td><td>可选，上传调用方研究区的地块 Shapefile ZIP</td></tr>
+          <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/infer/start</td><td>启动推理任务，返回分类图与整幅影像的主要类别结果；传入 parcel_file_id 时生成地块级 Shapefile</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/infer/status/{task_id}</td><td>查询推理任务状态和整幅影像的主要类别结果</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/infer/tasks</td><td>列出当前服务中的推理任务</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/infer/download/{task_id}?format=classification</td><td>下载分类 GeoTIFF</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/infer/download/{task_id}?format=confidence</td><td>下载置信度 GeoTIFF</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/infer/download/{task_id}?format=shp</td><td>下载地块级 Shapefile ZIP，仅在传入 parcel_file_id 后生成</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/infer/download/{task_id}?format=metadata</td><td>下载任务元数据 JSON</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api-predictions/{job_id}/classification</td><td>下载某次历史推理的分类图</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api-predictions/{job_id}/confidence</td><td>下载某次历史推理的置信度图</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api-predictions/{job_id}/metadata</td><td>查看某次历史推理的记录</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/reports/prediction</td><td>查看预测报告</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/reports/postprocess</td><td>查看后处理报告</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/reports/accuracy</td><td>查看精度评价报告</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/maps/summary</td><td>统计分类图面积与像元数量</td></tr>
+          <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/yield/estimate</td><td>启动估产任务，基于 NDVI/LAI 估算各作物产量</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/yield/status/{yield_task_id}</td><td>查询估产任务状态与结果</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/yield/tasks</td><td>列出当前服务中的估产任务</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/yield/download/{yield_task_id}</td><td>下载估产元数据 JSON</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/artifacts</td><td>查看当前全部成果文件</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/artifacts/{name}</td><td>查看指定成果文件信息</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/artifacts/{name}/download</td><td>下载指定成果文件</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="eyebrow" style="font-size:24px;color:#355b88;font-weight:700;">返回内容说明</div>
+      <div class="note-box">
+        <p><strong>状态接口</strong> 返回任务状态、进度、有效像元数量、模型特征名、整幅影像的主要类别结果，以及结果下载地址。</p>
+        <p><strong>下载接口</strong> 默认提供分类图 GeoTIFF、置信度图 GeoTIFF、元数据 JSON；启动任务时传入 <code>parcel_file_id</code> 后额外提供地块级 Shapefile ZIP。</p>
+        <p><strong>元数据 JSON</strong> 包含输入文件、波段映射、缩放参数、有效像元数量和输出文件路径等对接信息。</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="eyebrow" style="font-size:24px;color:#355b88;font-weight:700;">实时推送 WebSocket</div>
+      <div class="ws-box">
+        <div class="ws-row">
+          <div class="ws-label">推理状态推送</div>
+          <div class="ws-url">__WS_BASE__/ws/infer/{task_id}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <a href="__APP_BASE__/docs">Swagger 文档</a>
+    </div>
+  </div>
+
+  <script>
+    const appBase = "__APP_BASE__";
+    const isFilePage = window.location.protocol === "file:";
+    const fallbackHttpBase = "http://127.0.0.1:8000";
+    const runtimeAppBase = isFilePage ? fallbackHttpBase : window.location.origin;
+    const runtimeApiBase = `${runtimeAppBase}/api`;
+    const runtimeWsBase = isFilePage
+      ? "ws://127.0.0.1:8000"
+      : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
+    const appBaseValue = appBase.includes("__APP_BASE__")
+      ? runtimeAppBase
+      : appBase;
+    const apiBaseValue = "__API_BASE__".includes("__API_BASE__")
+      ? runtimeApiBase
+      : "__API_BASE__";
+    const wsBaseValue = "__WS_BASE__".includes("__WS_BASE__")
+      ? runtimeWsBase
+      : "__WS_BASE__";
+
+    const copyBaseBtn = document.getElementById("copy-base-btn");
+    const apiBase = document.getElementById("api-base");
+    apiBase.textContent = appBaseValue;
+
+    const docsLink = document.querySelector(".footer a");
+    docsLink.href = `${appBaseValue}/docs`;
+
+    function replacePlaceholders(block) {
+      block.textContent = block.textContent
+        .replaceAll("__API_BASE__", apiBaseValue)
+        .replaceAll("__WS_BASE__", wsBaseValue)
+        .replaceAll("__APP_BASE__", appBaseValue);
+    }
+
+    ["code-curl", "code-python", "code-javascript"].forEach((id) => {
+      replacePlaceholders(document.getElementById(id));
+    });
+    replacePlaceholders(document.querySelector(".ws-url"));
+
+    copyBaseBtn.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(apiBase.textContent.trim());
+      const oldText = copyBaseBtn.textContent;
+      copyBaseBtn.textContent = "已复制";
+      setTimeout(() => { copyBaseBtn.textContent = oldText; }, 1200);
+    });
+
+    const codeTitle = document.getElementById("code-title");
+    const copyCodeBtn = document.getElementById("copy-code-btn");
+    const tabs = Array.from(document.querySelectorAll(".tab-btn"));
+    const blocks = {
+      curl: document.getElementById("code-curl"),
+      python: document.getElementById("code-python"),
+      javascript: document.getElementById("code-javascript")
+    };
+    const titles = {
+      curl: "BASH",
+      python: "PYTHON",
+      javascript: "JAVASCRIPT"
+    };
+
+    function activateTab(target) {
+      tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.target === target));
+      Object.entries(blocks).forEach(([name, block]) => {
+        block.classList.toggle("hidden", name !== target);
+      });
+      codeTitle.textContent = titles[target];
+    }
+
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => activateTab(tab.dataset.target));
+    });
+
+    copyCodeBtn.addEventListener("click", async () => {
+      const active = tabs.find((tab) => tab.classList.contains("active"));
+      const block = blocks[active.dataset.target];
+      await navigator.clipboard.writeText(block.textContent);
+    });
+  </script>
+</body>
+</html>

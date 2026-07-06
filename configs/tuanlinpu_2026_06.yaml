@@ -1,0 +1,41 @@
+project:
+  name: CropClassifier-Tuanlinpu-2026-06
+  target_resolution_m: 10
+  target_crs: EPSG:4326
+  scene_limit: 30
+
+data_source:
+  active: sentinel2
+  semantic_bands:
+    blue: null
+    green: null
+    red: null
+    rededge: null
+    nir: null
+    swir: null
+
+season:
+  year: 2026
+  start_date: "2026-06-01"
+  end_date: "2026-06-30"
+  composite: monthly_median
+  target_months:
+    - 6
+  recommended_timepoints: "1"
+
+sentinel2:
+  enabled: true
+  collection: sentinel-2-l2a
+  max_cloud: 30
+  semantic_band_mapping:
+    blue: blue
+    green: green
+    red: red
+    rededge: rededge1
+    nir: nir
+    swir: swir16
+    scl: scl
+
+sentinel1:
+  enabled: false
+  collection: sentinel-1-grd

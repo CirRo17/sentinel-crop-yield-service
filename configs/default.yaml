@@ -1,0 +1,88 @@
+project:
+  name: CropClassifier-Caobuhu
+  target_resolution_m: 10
+  target_crs: EPSG:4326
+  scene_limit: 30
+
+data_source:
+  # Current fallback source is Sentinel-2. Final production source is expected
+  # to be UAV multispectral imagery when data is available.
+  active: sentinel2
+  semantic_bands:
+    blue: null
+    green: null
+    red: null
+    rededge: null
+    nir: null
+    swir: null
+
+season:
+  year: 2025
+  start_date: "2025-07-01"
+  end_date: "2025-07-31"
+  composite: monthly_median
+  target_months:
+    - 7
+  recommended_timepoints: "1"
+
+sentinel2:
+  enabled: true
+  collection: sentinel-2-l2a
+  max_cloud: 30
+  semantic_band_mapping:
+    blue: blue
+    green: green
+    red: red
+    rededge: rededge1
+    nir: nir
+    swir: swir16
+    scl: scl
+
+uav_multispectral:
+  enabled: false
+  input_dir: data/input/uav_multispectral
+  file_pattern: "*.tif"
+  preprocessing_required:
+    - radiometric_correction
+    - band_coregistration
+    - orthomosaic
+    - spatial_coregistration
+  minimum_bands:
+    - red
+    - rededge
+    - nir
+  recommended_bands:
+    - blue
+    - green
+    - red
+    - rededge
+    - nir
+  typical_center_wavelength_nm:
+    blue: 450
+    green: 560
+    red: 650
+    rededge: 730
+    nir: 840
+  semantic_band_mapping:
+    blue: null
+    green: null
+    red: null
+    rededge: null
+    nir: null
+    swir: null
+  note: Fill this mapping when the UAV camera band order and file layout are known.
+
+sentinel1:
+  enabled: true
+  collection: sentinel-1-grd
+  required_polarizations:
+    - VV
+    - VH
+  instrument_mode: IW
+  note: Add VV/VH time-series preprocessing before production pixel-level mapping.
+
+model:
+  type: RandomForestClassifier
+  random_state: 42
+  n_estimators: 300
+  class_weight: balanced

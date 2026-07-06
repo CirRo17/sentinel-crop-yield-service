@@ -1,0 +1,38 @@
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local environment and logs
+.env
+.env.*
+*.log
+
+# Local assistant/tooling state
+.agents/
+.claude/
+
+# Large local geospatial/training/runtime data
+data/input/
+data/output/
+data/exported/
+data/source/
+data/uploads/
+CropGlobe_data/
+tiff_Files/
+shp_Files/
+
+# Keep lightweight documentation/placeholders under data if needed
+!data/README.md
+!data/**/.gitkeep
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
