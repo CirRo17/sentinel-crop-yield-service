@@ -71,7 +71,7 @@ curl http://192.168.110.53:8000/api/health
 ```json
 {
   "status": "ok",
-  "service": "CropClassifier API",
+  "service": "CropService API",
   "version": "0.5.0"
 }
 ```
