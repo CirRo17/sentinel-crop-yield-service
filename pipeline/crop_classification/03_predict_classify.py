@@ -8,38 +8,51 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import joblib
 import numpy as np
 import rasterio
+from rasterio.features import geometry_mask
 from rasterio.windows import Window
+from rasterio.warp import transform_geom
 
 from crop_domain.labels import normalize_output_classes
 from image_core.feature_schema import band_names_from_dataset, require_feature_stack_schema
+from configs.paths import ProjectPaths
 
 
-DEFAULT_FEATURE_STACK = Path("data/exported/feature_stack.tif")
-DEFAULT_METADATA = Path("data/exported/feature_stack_metadata.json")
-DEFAULT_MODEL = Path("models/crop_classifier.joblib")
-DEFAULT_MODEL_INFO = Path("models/model_info.json")
-DEFAULT_CLASSIFICATION = Path("data/output/crop_classification.tif")
-DEFAULT_CONFIDENCE = Path("data/output/crop_confidence.tif")
-DEFAULT_PREDICTION_INFO = Path("data/output/prediction_info.json")
 
+NODATA_CLASS = 255
 NODATA_CONFIDENCE = -9999.0
+
+
+def configure_gdal_proj() -> None:
+    try:
+        proj_dir = Path(rasterio.__file__).resolve().parent / "proj_data"
+        if (proj_dir / "proj.db").exists():
+            os.environ.setdefault("PROJ_LIB", str(proj_dir))
+            os.environ.setdefault("PROJ_DATA", str(proj_dir))
+        os.environ.setdefault("PROJ_IGNORE_BUILD_INFO", "YES")
+    except Exception:
+        pass
+
+
+configure_gdal_proj()
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Predict crop classes for a whole-AOI feature stack.")
-    parser.add_argument("--feature-stack", type=Path, default=DEFAULT_FEATURE_STACK)
-    parser.add_argument("--metadata", type=Path, default=DEFAULT_METADATA)
-    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
-    parser.add_argument("--model-info", type=Path, default=DEFAULT_MODEL_INFO)
-    parser.add_argument("--classification", type=Path, default=DEFAULT_CLASSIFICATION)
-    parser.add_argument("--confidence", type=Path, default=DEFAULT_CONFIDENCE)
-    parser.add_argument("--prediction-info", type=Path, default=DEFAULT_PREDICTION_INFO)
+    parser.add_argument("--config", type=Path, default=Path("configs/default.yaml"))
+    parser.add_argument("--feature-stack", type=Path, default=None)
+    parser.add_argument("--metadata", type=Path, default=None)
+    parser.add_argument("--model", type=Path, default=None)
+    parser.add_argument("--model-info", type=Path, default=None)
+    parser.add_argument("--classification", type=Path, default=None)
+    parser.add_argument("--confidence", type=Path, default=None)
+    parser.add_argument("--prediction-info", type=Path, default=None)
     parser.add_argument(
         "--timepoint",
         default=None,
@@ -60,12 +73,61 @@ def load_json(path: Path) -> dict[str, Any]:
         return json.load(f)
 
 
+def load_region_geometry(path: Path, default_crs: str) -> tuple[dict[str, Any], str]:
+    if path.suffix.lower() in {".json", ".geojson"}:
+        with open(path, encoding="utf-8-sig") as f:
+            geojson = json.load(f)
+        crs = default_crs
+        if isinstance(geojson.get("crs"), dict):
+            crs = str(geojson["crs"].get("properties", {}).get("name") or default_crs)
+        if geojson.get("type") == "FeatureCollection":
+            features = geojson.get("features", [])
+            if not features:
+                raise ValueError(f"{path} contains no features.")
+            if len(features) == 1:
+                return features[0]["geometry"], crs
+            return {"type": "GeometryCollection", "geometries": [item["geometry"] for item in features]}, crs
+        if geojson.get("type") == "Feature":
+            return geojson["geometry"], crs
+        return geojson, crs
+
+    try:
+        import geopandas as gpd
+    except ImportError as exc:
+        raise ValueError("Reading non-GeoJSON AOI masks requires geopandas.") from exc
+
+    gdf = gpd.read_file(path)
+    if gdf.empty:
+        raise ValueError(f"{path} contains no features.")
+    geometry = gdf.geometry.unary_union.__geo_interface__
+    crs = str(gdf.crs) if gdf.crs is not None else default_crs
+    return geometry, crs
+
+
+def build_aoi_mask(
+    aoi_path: Path | None,
+    ref: rasterio.DatasetReader,
+    default_crs: str = "EPSG:4326",
+) -> np.ndarray | None:
+    if aoi_path is None:
+        return None
+    if not aoi_path.exists():
+        raise FileNotFoundError(f"AOI mask file does not exist: {aoi_path}")
+    geometry, src_crs = load_region_geometry(aoi_path, default_crs)
+    if ref.crs is not None and src_crs:
+        geometry = transform_geom(src_crs, ref.crs, geometry)
+    mask = geometry_mask([geometry], out_shape=(ref.height, ref.width), transform=ref.transform, invert=True)
+    if not np.any(mask):
+        raise ValueError(f"AOI mask has no overlap with feature stack: {aoi_path}")
+    return mask
+
+
 def output_profiles(src: rasterio.DatasetReader) -> tuple[dict[str, Any], dict[str, Any]]:
     class_profile = src.profile.copy()
     class_profile.update(
         count=1,
         dtype="uint8",
-        nodata=None,
+        nodata=NODATA_CLASS,
         compress="deflate",
         tiled=True,
         blockxsize=min(256, src.width),
@@ -99,7 +161,7 @@ def predict_window(model: Any, data: np.ndarray) -> tuple[np.ndarray, np.ndarray
     flat = np.moveaxis(data, 0, -1).reshape(-1, feature_count).astype("float32")
     valid = np.all(np.isfinite(flat), axis=1)
 
-    classes = np.zeros(flat.shape[0], dtype="uint8")
+    classes = np.full(flat.shape[0], NODATA_CLASS, dtype="uint8")
     confidence = np.full(flat.shape[0], NODATA_CONFIDENCE, dtype="float32")
 
     if np.any(valid):
@@ -118,24 +180,34 @@ def predict_window(model: Any, data: np.ndarray) -> tuple[np.ndarray, np.ndarray
 
 def main() -> None:
     args = parse_args()
-    if not args.feature_stack.exists():
+    paths = ProjectPaths(args.config)
+
+    feature_stack = args.feature_stack or paths.feature_stack
+    metadata_path = args.metadata or paths.feature_stack_metadata
+    model_path = args.model or paths.model_file
+    model_info_path = args.model_info or paths.model_info
+    classification = args.classification or paths.classification
+    confidence = args.confidence or paths.classification_confidence
+    prediction_info_path = args.prediction_info or paths.classification_info
+
+    if not feature_stack.exists():
         raise FileNotFoundError(
-            f"Missing feature stack: {args.feature_stack}. "
-            "Run python -m data_sources.sentinel.build_features or "
+            f"Missing feature stack: {feature_stack}. "
+            "Run python -m data_sources.aws_element84.build_features or "
             "python -m image_core.build_features_from_multiband first."
         )
-    if not args.model.exists():
+    if not model_path.exists():
         raise FileNotFoundError(
-            f"Missing model: {args.model}. Run python -m pipeline.crop_classification.02_train_rf first."
+            f"Missing model: {model_path}. Run python -m pipeline.crop_classification.02_train_rf first."
         )
 
-    metadata = load_json(args.metadata) if args.metadata.exists() else None
-    model_info = load_json(args.model_info)
+    metadata = load_json(metadata_path) if metadata_path.exists() else None
+    model_info = load_json(model_info_path)
     model_features = [str(name) for name in model_info.get("feature_names", [])]
     if not model_features:
-        raise ValueError(f"{args.model_info} does not contain feature_names.")
+        raise ValueError(f"{model_info_path} does not contain feature_names.")
 
-    model = joblib.load(args.model)
+    model = joblib.load(model_path)
     if hasattr(model, "n_jobs"):
         model.n_jobs = 1
     if hasattr(model, "named_steps"):
@@ -143,11 +215,11 @@ def main() -> None:
         if rf_step is not None and hasattr(rf_step, "n_jobs"):
             rf_step.n_jobs = 1
 
-    args.classification.parent.mkdir(parents=True, exist_ok=True)
-    args.confidence.parent.mkdir(parents=True, exist_ok=True)
-    args.prediction_info.parent.mkdir(parents=True, exist_ok=True)
+    classification.parent.mkdir(parents=True, exist_ok=True)
+    confidence.parent.mkdir(parents=True, exist_ok=True)
+    prediction_info_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with rasterio.open(args.feature_stack) as src:
+    with rasterio.open(feature_stack) as src:
         band_names = band_names_from_dataset(src, metadata)
         schema_check = require_feature_stack_schema(
             model_features,
@@ -157,14 +229,23 @@ def main() -> None:
         )
         band_indexes = schema_check.selected_band_indexes
         class_profile, confidence_profile = output_profiles(src)
+        aoi_path = Path(str(metadata["aoi"])) if metadata and metadata.get("aoi") else None
+        aoi_mask = build_aoi_mask(aoi_path, src)
 
-        with rasterio.open(args.classification, "w", **class_profile) as class_dst, rasterio.open(
-            args.confidence, "w", **confidence_profile
+        with rasterio.open(classification, "w", **class_profile) as class_dst, rasterio.open(
+            confidence, "w", **confidence_profile
         ) as confidence_dst:
             total_valid = 0
             for window in iter_windows(src):
                 data = src.read(band_indexes, window=window, masked=False)
                 class_block, confidence_block = predict_window(model, data)
+                if aoi_mask is not None:
+                    window_mask = aoi_mask[
+                        int(window.row_off): int(window.row_off + window.height),
+                        int(window.col_off): int(window.col_off + window.width),
+                    ]
+                    class_block[~window_mask] = NODATA_CLASS
+                    confidence_block[~window_mask] = NODATA_CONFIDENCE
                 total_valid += int(np.count_nonzero(confidence_block != NODATA_CONFIDENCE))
                 class_dst.write(class_block, 1, window=window)
                 confidence_dst.write(confidence_block.astype("float32"), 1, window=window)
@@ -174,13 +255,14 @@ def main() -> None:
         for feature, index in zip(model_features, band_indexes)
     ]
     prediction_info = {
-        "feature_stack": str(args.feature_stack),
-        "feature_metadata": str(args.metadata) if args.metadata.exists() else None,
-        "model": str(args.model),
-        "model_info": str(args.model_info),
-        "classification": str(args.classification),
-        "confidence": str(args.confidence),
-        "nodata_class": None,
+        "feature_stack": str(feature_stack),
+        "feature_metadata": str(metadata_path) if metadata_path.exists() else None,
+        "model": str(model_path),
+        "model_info": str(model_info_path),
+        "classification": str(classification),
+        "confidence": str(confidence),
+        "aoi_mask": str(aoi_path) if aoi_path else None,
+        "nodata_class": NODATA_CLASS,
         "nodata_confidence": NODATA_CONFIDENCE,
         "output_classes": {
             "0": "Others",
@@ -189,7 +271,7 @@ def main() -> None:
             "3": "Maize",
             "4": "Rapeseed",
         },
-        "class_normalization": "Invalid, unknown, and missing-feature pixels are written as public class 0.",
+        "class_normalization": "Invalid, outside-AOI, unknown, and missing-feature pixels are written as nodata class 255.",
         "feature_schema_hash": schema_check.schema_hash,
         "feature_schema_matched_by_suffix": schema_check.matched_by_suffix,
         "selected_bands": selected_bands,
@@ -200,17 +282,15 @@ def main() -> None:
             "a single-class or tiny training set is not a valid production classifier."
         ),
     }
-    with open(args.prediction_info, "w", encoding="utf-8") as f:
+    with open(prediction_info_path, "w", encoding="utf-8") as f:
         json.dump(prediction_info, f, indent=2, ensure_ascii=False)
 
-    print(f"Saved classification: {args.classification}")
-    print(f"Saved confidence: {args.confidence}")
-    print(f"Saved prediction info: {args.prediction_info}")
+    print(f"Saved classification: {classification}")
+    print(f"Saved confidence: {confidence}")
+    print(f"Saved prediction info: {prediction_info_path}")
     if model_info.get("classes") and len(model_info["classes"]) < 2:
         print("WARNING: model contains fewer than 2 classes; output is not a meaningful crop classification map.")
 
 
 if __name__ == "__main__":
     main()
-
-

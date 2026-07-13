@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>作物分类与估产服务</title>
+  <title>Sentinel Crop Service</title>
   <style>
     :root {
       --bg: #f4f8fd;
@@ -113,7 +113,7 @@
     .workflow {
       margin-top: 16px;
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
       gap: 12px;
     }
     .step {
@@ -373,9 +373,9 @@
 </head>
 <body>
   <div class="shell">
-    <div class="eyebrow">农作物分类与估产在线服务</div>
-    <h1>通过 API 接口远程调用作物分类与产量估算能力，集成到业务系统中</h1>
-    <p class="sub">服务采用工程化 Web API 形式：先上传影像，启动分类推理，下载分类图和置信度图；再基于分类结果调用估产接口，按作物类型估算面积、单产和总产。分类阶段完成波段读取、缩放归一化、特征构建和模型预测；估产阶段基于 NDVI/LAI 植被指数与作物掩膜进行产量回归。</p>
+    <div class="eyebrow">Sentinel Crop Service</div>
+    <h1>农作物遥感监测在线服务</h1>
+    <p class="sub">提供作物分类、长势监测、病虫害检测与产量估算等遥感分析能力，通过异步 API 接口调用，支持状态轮询与结果下载。</p>
 
     <div class="base-card">
       <div class="base-title">
@@ -389,7 +389,7 @@
         <div class="base-url" id="api-base">__APP_BASE__</div>
         <button class="copy-btn" id="copy-base-btn" type="button">复制</button>
       </div>
-      <div class="tiny">当前页面、Swagger 文档和接口都挂在这个服务地址下。接口请求统一使用 <code>/api/...</code> 路径，例如 <code>/api/data/upload</code>、<code>/api/data/upload-parcels</code>、<code>/api/infer/start</code>。</div>
+      <div class="tiny">当前页面、Swagger 文档和接口都挂在这个服务地址下。接口请求统一使用 <code>/api/...</code> 路径。</div>
     </div>
 
     <div class="section">
@@ -397,33 +397,28 @@
       <div class="workflow">
         <div class="step">
           <div class="step-no">STEP 1</div>
-          <div class="step-title">上传影像</div>
-          <div class="step-text">调用 <code>/api/data/upload</code> 上传 GeoTIFF，服务返回 <code>file_id</code> 作为推理输入标识。</div>
+          <div class="step-title">上传影像与地块</div>
+          <div class="step-text">调用 <code>/api/data/upload</code> 上传 GeoTIFF，<code>/api/data/upload-parcels</code> 上传地块 ZIP。</div>
         </div>
         <div class="step">
           <div class="step-no">STEP 2</div>
-          <div class="step-title">上传地块</div>
-          <div class="step-text">如需 Shapefile 结果，调用 <code>/api/data/upload-parcels</code> 上传调用方研究区的地块 Shapefile ZIP，服务返回 <code>parcel_file_id</code>。</div>
+          <div class="step-title">作物识别</div>
+          <div class="step-text">调用 <code>/api/infer/start</code> 启动推理，下载分类图、置信度图及地块级作物分布 Shapefile。</div>
         </div>
         <div class="step">
           <div class="step-no">STEP 3</div>
-          <div class="step-title">启动推理</div>
-          <div class="step-text">调用 <code>/api/infer/start</code>，传入 <code>file_id</code>、波段编号和缩放参数；需要地块结果时同时传入 <code>parcel_file_id</code>。</div>
+          <div class="step-title">产量估算</div>
+          <div class="step-text">调用 <code>/api/yield/estimate</code>，基于分类结果按作物估算面积、单产和总产。</div>
         </div>
         <div class="step">
           <div class="step-no">STEP 4</div>
-          <div class="step-title">查询状态</div>
-          <div class="step-text">轮询 <code>/api/infer/status/{task_id}</code>，查看进度、整幅影像的主要类别结果以及可下载的结果地址。</div>
+          <div class="step-title">长势监测</div>
+          <div class="step-text">调用 <code>/api/growth/start</code>，Z-Score 分析输出地块级长势等级。</div>
         </div>
         <div class="step">
           <div class="step-no">STEP 5</div>
-          <div class="step-title">下载结果</div>
-          <div class="step-text">任务完成后下载分类图、置信度图和元数据；传入地块数据时可额外下载地块级 Shapefile ZIP。</div>
-        </div>
-        <div class="step">
-          <div class="step-no">STEP 6</div>
-          <div class="step-title">估产</div>
-          <div class="step-text">基于分类结果调用 <code>/api/yield/estimate</code>，传入推理 task_id，按作物类型估算产量（kg/ha）、面积和总产。</div>
+          <div class="step-title">病虫害胁迫</div>
+          <div class="step-text">调用 <code>/api/pest/start</code>，多时相指数对比输出地块级胁迫等级。</div>
         </div>
       </div>
     </div>
@@ -511,6 +506,38 @@
             </div>
           </div>
         </div>
+        <div class="card">
+          <div class="card-head">
+            <div class="icon green">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><circle cx="12" cy="12" r="5"/></svg>
+            </div>
+            <div>
+              <h3>长势监测</h3>
+              <p>基于多年同期 NDVI 基准的 Z-Score 距平分析，自动运行像元级分级→地块级定级，输出优/良/中/差四级评估。</p>
+              <div class="ep-row">
+                <span class="method-pill post-pill">POST</span>
+                <span class="ep-text">/api/growth/start</span>
+              </div>
+              <span class="available">可用</span>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div class="icon orange">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            </div>
+            <div>
+              <h3>病虫害检测</h3>
+              <p>多时相植被指数对比（当前 vs 前期 vs 历史同期），综合 Z-Score、趋势下降、多指数一致性评分，输出地块级胁迫等级。</p>
+              <div class="ep-row">
+                <span class="method-pill post-pill">POST</span>
+                <span class="ep-text">/api/pest/start</span>
+              </div>
+              <span class="available">可用</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -561,7 +588,29 @@ curl -X POST __API_BASE__/yield/estimate \
 curl __API_BASE__/yield/status/yield_{task_id}
 
 # 8. 下载估产结果
-curl "__API_BASE__/yield/download/yield_{task_id}?format=metadata" -o yield.json</pre>
+curl "__API_BASE__/yield/download/yield_{task_id}?format=metadata" -o yield.json
+
+# ── 长势监测 ──
+# 9. 启动长势监测（需先完成数据准备）
+curl -X POST __API_BASE__/growth/start -H "Content-Type: application/json" \
+  -d '{"target_year": 2026, "target_month": 6}'
+
+# 10. 查询长势监测状态
+curl __API_BASE__/growth/status/{task_id}
+
+# 11. 下载长势结果
+curl "__API_BASE__/growth/download/{task_id}?format=step3_csv" -o parcel_growth.csv
+
+# ── 病虫害检测 ──
+# 12. 启动病虫害检测（需先运行 Step1 准备历史数据）
+curl -X POST __API_BASE__/pest/start -H "Content-Type: application/json" \
+  -d '{}'
+
+# 13. 查询病虫害检测状态
+curl __API_BASE__/pest/status/{task_id}
+
+# 14. 下载病虫害结果
+curl "__API_BASE__/pest/download/{task_id}?format=step3_shp" -o pest_grade.zip</pre>
         <pre id="code-python" class="hidden">import requests
 import time
 
@@ -704,6 +753,14 @@ ws.onmessage = (event) => {
           <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/yield/status/{yield_task_id}</td><td>查询估产任务状态与结果</td></tr>
           <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/yield/tasks</td><td>列出当前服务中的估产任务</td></tr>
           <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/yield/download/{yield_task_id}</td><td>下载估产元数据 JSON</td></tr>
+          <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/growth/start</td><td>启动长势监测（像元 Z-Score → 地块定级）</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/growth/status/{task_id}</td><td>查询长势监测任务状态</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/growth/tasks</td><td>列出长势监测任务</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/growth/download/{task_id}</td><td>下载长势监测结果</td></tr>
+          <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/pest/start</td><td>启动病虫害检测（像元胁迫评分 → 地块定级）</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/pest/status/{task_id}</td><td>查询病虫害检测任务状态</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/pest/tasks</td><td>列出病虫害检测任务</td></tr>
+          <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/pest/download/{task_id}</td><td>下载病虫害检测结果</td></tr>
           <tr><td><span class="method get">GET</span></td><td class="endpoint">/artifacts</td><td>查看当前全部成果文件</td></tr>
           <tr><td><span class="method get">GET</span></td><td class="endpoint">/artifacts/{name}</td><td>查看指定成果文件信息</td></tr>
           <tr><td><span class="method get">GET</span></td><td class="endpoint">/artifacts/{name}/download</td><td>下载指定成果文件</td></tr>

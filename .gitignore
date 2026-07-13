@@ -23,6 +23,7 @@ data/output/
 data/exported/
 data/source/
 data/uploads/
+data/_archive_*/
 CropGlobe_data/
 tiff_Files/
 shp_Files/
@@ -36,3 +37,9 @@ shp_Files/
 Thumbs.db
 .vscode/
 .idea/
+
+# Copernicus credentials and token cache
+.copernicus/
+
+# Local test data
+test_data_*/

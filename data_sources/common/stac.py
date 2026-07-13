@@ -12,7 +12,7 @@ import requests
 from shapely.geometry import shape
 
 from data_sources.common.config import EARTH_SEARCH_URL
-from data_sources.sentinel.config import BAND_ASSETS, SENTINEL_COLLECTION
+from data_sources.aws_element84.config import BAND_ASSETS, SENTINEL_COLLECTION
 from data_sources.common.schemas import SceneRequest, SceneSummary
 
 

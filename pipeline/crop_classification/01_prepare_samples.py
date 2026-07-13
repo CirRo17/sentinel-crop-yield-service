@@ -23,13 +23,7 @@ from rasterio.warp import transform_bounds, transform_geom
 
 from crop_domain.labels import TARGET_LABELS
 from image_core.feature_schema import duplicate_names
-
-
-DEFAULT_FEATURE_STACK = Path("data/exported/feature_stack_2025_07_s2_test.tif")
-DEFAULT_FEATURE_METADATA = Path("data/exported/feature_stack_2025_07_s2_test_metadata.json")
-DEFAULT_LABEL_ROOT = Path("data/input/lables")
-DEFAULT_OUTPUT = Path("data/exported/pixel_training_data.npz")
-DEFAULT_REPORT = Path("data/exported/pixel_training_data_report.json")
+from configs.paths import ProjectPaths
 
 
 def configure_gdal_proj() -> None:
@@ -57,12 +51,13 @@ def parse_codes(value: str | None) -> set[int]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="从作物专题图构建像素级训练样本。")
-    parser.add_argument("--feature-stack", type=Path, default=DEFAULT_FEATURE_STACK, help="特征栈 GeoTIFF。")
-    parser.add_argument("--metadata", type=Path, default=DEFAULT_FEATURE_METADATA, help="特征栈元数据 JSON。")
-    parser.add_argument("--rice-map", type=Path, default=DEFAULT_LABEL_ROOT / "rice", help="水稻专题图文件或目录。")
-    parser.add_argument("--maize-map", type=Path, default=DEFAULT_LABEL_ROOT / "maize", help="玉米专题图文件或目录。")
-    parser.add_argument("--wheat-map", type=Path, default=DEFAULT_LABEL_ROOT / "wheat", help="小麦专题图文件或目录。")
-    parser.add_argument("--rapeseed-map", type=Path, default=DEFAULT_LABEL_ROOT / "rapeseed", help="油菜专题图文件或目录。")
+    parser.add_argument("--config", type=Path, default=Path("configs/default.yaml"))
+    parser.add_argument("--feature-stack", type=Path, default=None, help="特征栈 GeoTIFF。")
+    parser.add_argument("--metadata", type=Path, default=None, help="特征栈元数据 JSON。")
+    parser.add_argument("--rice-map", type=Path, default=None, help="水稻专题图文件或目录。")
+    parser.add_argument("--maize-map", type=Path, default=None, help="玉米专题图文件或目录。")
+    parser.add_argument("--wheat-map", type=Path, default=None, help="小麦专题图文件或目录。")
+    parser.add_argument("--rapeseed-map", type=Path, default=None, help="油菜专题图文件或目录。")
     parser.add_argument("--sample-region", type=Path, default=None, help="样本采集区域 GeoJSON/矢量文件。默认使用元数据中的 AOI。")
     parser.add_argument("--sample-region-crs", default="EPSG:4326", help="样本采集区域缺少 CRS 时使用的坐标系。")
     parser.add_argument("--positive-codes", default=None, help="专题图有效编码。默认所有大于 0 且非 NoData 的像元有效。")
@@ -70,8 +65,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-per-class", type=int, default=50, help="每类最低样本数。")
     parser.add_argument("--erode-pixels", type=int, default=1, help="腐蚀掩膜像元数，用于剔除边界混合像元。")
     parser.add_argument("--random-state", type=int, default=42)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
+    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--report", type=Path, default=None)
     return parser.parse_args()
 
 
@@ -294,30 +289,80 @@ def sample_class(
 
 def main() -> None:
     args = parse_args()
+    paths = ProjectPaths(args.config)
     rng = np.random.default_rng(args.random_state)
-    metadata = load_json(args.metadata)
+
+    feature_stack = args.feature_stack or paths.feature_stack
+    metadata_path = args.metadata or paths.feature_stack_metadata
+    label_root = paths.labels_dir
+    output = args.output or paths.training_data
+    report_path = args.report or paths.training_report
+
+    metadata = load_json(metadata_path)
     sample_region = args.sample_region
     if sample_region is None and metadata and metadata.get("aoi"):
         sample_region = Path(str(metadata["aoi"]))
     if sample_region is None:
         raise ValueError("必须通过 --sample-region 或特征栈元数据 aoi 指定样本采集区域。")
 
-    if not args.feature_stack.exists():
-        raise FileNotFoundError(f"缺少特征栈：{args.feature_stack}")
+    if not feature_stack.exists():
+        raise FileNotFoundError(f"缺少特征栈：{feature_stack}")
 
-    with rasterio.open(args.feature_stack) as src:
+    # Resolve label map paths
+    args.rice_map = args.rice_map or label_root / "rice"
+    args.maize_map = args.maize_map or label_root / "maize"
+    args.wheat_map = args.wheat_map or label_root / "wheat"
+    args.rapeseed_map = args.rapeseed_map or label_root / "rapeseed"
+
+    with rasterio.open(feature_stack) as src:
         names = feature_names(src, metadata)
-        stack = src.read(masked=False).astype("float32")
-        flat = np.moveaxis(stack, 0, -1).reshape(-1, src.count)
-        valid_pixels = np.all(np.isfinite(flat), axis=1)
+        # Build masks first (cheap, no data read)
         region_mask, region_info = build_region_mask(sample_region, args.sample_region_crs, src)
         masks, sources = build_label_masks(args, src, region_mask)
+
+        # Combine label masks + sample background for class 0
+        label_union = np.zeros((src.height, src.width), dtype=bool)
+        for code in [1, 2, 3, 4]:
+            label_union |= masks[code]
+        label_indices = np.flatnonzero(label_union.ravel())
+
+        # Sample background (class 0) from AOI region outside label areas
+        bg_mask = masks.get(0, region_mask & ~label_union)
+        bg_indices_all = np.flatnonzero(bg_mask.ravel())
+        n_bg_sample = min(len(bg_indices_all), args.max_per_class * 10)
+        if n_bg_sample > 0:
+            bg_indices = bg_indices_all[np.random.default_rng(args.random_state).choice(
+                len(bg_indices_all), size=n_bg_sample, replace=False
+            )]
+        else:
+            bg_indices = np.array([], dtype=np.int64)
+
+        all_indices = np.concatenate([label_indices, bg_indices])
+        n_total = len(all_indices)
+        print(f"标签+背景像素数：{n_total}（全图 {src.width*src.height} 的 {100*n_total/(src.width*src.height):.1f}%）", flush=True)
+
+        # Read only needed pixels, band by band
+        n_bands = src.count
+        flat = np.empty((n_total, n_bands), dtype="float32")
+        for b in range(n_bands):
+            band_data = src.read(b + 1, masked=False).astype("float32").ravel()
+            flat[:, b] = band_data[all_indices]
+        del band_data
+        valid_pixels = np.all(np.isfinite(flat), axis=1)
 
     X_parts: list[np.ndarray] = []
     y_parts: list[np.ndarray] = []
     class_rows: list[dict[str, Any]] = []
     for code in [0, 1, 2, 3, 4]:
-        X_cls, y_cls = sample_class(flat, valid_pixels, masks[code], code, args.max_per_class, rng)
+        # Map global mask to local indices
+        cls_mask_global = masks[code].ravel()
+        if code == 0:
+            # Use the sampled bg subset
+            cls_mask_local = np.zeros(n_total, dtype=bool)
+            cls_mask_local[len(label_indices):] = True
+        else:
+            cls_mask_local = cls_mask_global[all_indices]
+        X_cls, y_cls = sample_class(flat, valid_pixels, cls_mask_local, code, args.max_per_class, rng)
         if len(y_cls) < args.min_per_class:
             raise ValueError(
                 f"类别 {code}（{TARGET_LABELS.get(code, code)}）样本数 {len(y_cls)} "
@@ -338,20 +383,20 @@ def main() -> None:
     X = np.concatenate(X_parts).astype("float32")
     y = np.concatenate(y_parts).astype("uint8")
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+    output.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
-        args.output,
+        output,
         X=X,
         y=y,
         feature_names=np.array(names),
         source=np.array("rice/maize/wheat/rapeseed specialty maps"),
     )
 
-    report = {
+    report_data = {
         "source": "rice specialty map + maize specialty map + wheat specialty map + rapeseed specialty map",
-        "feature_stack": str(args.feature_stack),
-        "metadata": str(args.metadata) if args.metadata.exists() else None,
-        "output": str(args.output),
+        "feature_stack": str(feature_stack),
+        "metadata": str(metadata_path) if metadata_path.exists() else None,
+        "output": str(output),
         "feature_names": names,
         "sample_count": int(len(y)),
         "sample_region": region_info,
@@ -371,15 +416,14 @@ def main() -> None:
             "random_state": args.random_state,
         },
     }
-    with open(args.report, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2, ensure_ascii=False)
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(report_data, f, indent=2, ensure_ascii=False)
 
-    print(f"已保存训练样本：{args.output}")
-    print(f"已保存样本报告：{args.report}")
+    print(f"已保存训练样本：{output}")
+    print(f"已保存样本报告：{report_path}")
 
 
 if __name__ == "__main__":
     main()
-
 
 

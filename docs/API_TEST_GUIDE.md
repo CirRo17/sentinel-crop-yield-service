@@ -361,9 +361,9 @@ else:
 对应输出文件位于：
 
 ```text
-data/output/api_predictions/20260625_170806_a4a6d4ee_classification.tif
-data/output/api_predictions/20260625_170806_a4a6d4ee_confidence.tif
-data/output/api_predictions/20260625_170806_a4a6d4ee_metadata.json
+data/output/runtime/api_predictions/20260625_170806_a4a6d4ee_classification.tif
+data/output/runtime/api_predictions/20260625_170806_a4a6d4ee_confidence.tif
+data/output/runtime/api_predictions/20260625_170806_a4a6d4ee_metadata.json
 ```
 
 ## 7. 常见问题

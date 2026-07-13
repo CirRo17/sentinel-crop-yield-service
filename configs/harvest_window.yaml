@@ -1,0 +1,97 @@
+paths:
+  s2_dir: data/source/sentinel2
+  s2_quality_inventory: data/exported/harvest_window/s2_quality_inventory.json
+  s2_indices_script: pipeline/crop_harvest_window/scripts/data_process/calc_s2_indices_csv.py
+  s2_indices_csv: data/exported/harvest_window/s2_indices.csv
+  s1_dir: data/source/sentinel1
+  weather_history_dir: data/input/weather/history
+  output_dir: data/output/harvest_window
+  parcels: data/output/parcel_postprocess/parcel_majority.shp
+  aoi: data/input/aoi/tuanlinpu_aoi.shp
+
+crop:
+  name: wheat
+  label: 小麦
+  crop_type_code: 2
+  season_start: "2025-01-01"
+  maturity_start: "2025-05-01"
+  maturity_full: "2025-05-25"
+  harvest_deadline: "2025-06-20"
+  gdd_base_c: 10.0
+  gdd_target_c_day: 1050.0
+  crop_type_mapping:
+    -9999: unknown
+    1: rice
+    2: wheat
+    3: maize
+    4: non_crop
+
+s2:
+  usable_tags:
+    - keep
+    - review
+  minimum_usable_scenes: 6
+  use_aoi_cloud_screening: true
+  keep_threshold: 10.0
+  review_threshold: 30.0
+  aoi_cloud_probability_threshold: 50.0
+  maturity_indices:
+    statistic: median
+    minimum_effective_pixel_ratio: 0.4
+    ndvi_green: 0.45
+    ndvi_mature: 0.25
+    ndre_green: 0.28
+    ndre_mature: 0.15
+    ndmi_green: 0.16
+    ndmi_mature: 0.06
+    weights:
+      ndvi: 0.50
+      ndre: 0.35
+      ndmi: 0.15
+
+s1:
+  preferred_relative_orbit: 113
+  minimum_preferred_scenes: 8
+
+weather:
+  precipitation_daily_aggregation: max
+  dry_day_precip_mm: 2.0
+  wet_day_precip_mm: 10.0
+  soil_moisture_good: 0.32
+  soil_moisture_poor: 0.45
+  wind_good_min_m_s: 1.0
+  wind_good_max_m_s: 6.0
+  wind_poor_m_s: 10.0
+  temp_good_min_c: 18.0
+  temp_good_max_c: 35.0
+  temp_poor_min_c: 8.0
+  temp_poor_max_c: 40.0
+
+forecast:
+  provider: open_meteo
+  as_of_date: "2025-06-30"
+  api_url: https://api.open-meteo.com/v1/forecast
+  timezone: Asia/Shanghai
+  latitude:
+  longitude:
+  timeout_seconds: 30
+  horizon_days: 15
+  window_days: 3
+  fallback: historical_tail
+  historical_tail_days: 15
+
+scoring:
+  maturity_weights:
+    calendar: 0.30
+    s2: 0.25
+    s1: 0.15
+    gdd: 0.30
+  harvest_score_weights:
+    maturity: 0.45
+    weather: 0.55
+  window_risk_penalties:
+    rain: 0.05
+    heavy_rain: 0.25
+    wet_soil: 0.20
+    strong_wind: 0.15
+    temperature_extreme: 0.10

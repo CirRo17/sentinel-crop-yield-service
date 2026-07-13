@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-BASE_FEATURE_NAMES = ("blue", "green", "red", "rededge", "nir", "swir", "ndvi", "ndwi", "evi", "ndre", "nbr")
+BASE_FEATURE_NAMES = ("blue", "green", "red", "rededge", "nir", "swir", "ndvi", "ndwi", "evi", "ndre", "ndmi", "nbr")
 
 
 @dataclass(frozen=True)

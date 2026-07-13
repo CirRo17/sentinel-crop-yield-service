@@ -16,22 +16,20 @@ import rasterio
 from rasterio.features import sieve
 
 from crop_domain.labels import TARGET_LABELS, normalize_output_classes
+from configs.paths import ProjectPaths
 
 
-DEFAULT_CLASSIFICATION = Path("data/output/crop_classification.tif")
-DEFAULT_CONFIDENCE = Path("data/output/crop_confidence.tif")
-DEFAULT_OUTPUT = Path("data/output/crop_classification_clean.tif")
-DEFAULT_INFO = Path("data/output/postprocess_info.json")
 
 NODATA_CONFIDENCE = -9999.0
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Postprocess crop classification GeoTIFFs.")
-    parser.add_argument("--classification", type=Path, default=DEFAULT_CLASSIFICATION)
-    parser.add_argument("--confidence", type=Path, default=DEFAULT_CONFIDENCE)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--info", type=Path, default=DEFAULT_INFO)
+    parser.add_argument("--config", type=Path, default=Path("configs/default.yaml"))
+    parser.add_argument("--classification", type=Path, default=None)
+    parser.add_argument("--confidence", type=Path, default=None)
+    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--info", type=Path, default=None)
     parser.add_argument(
         "--min-confidence",
         type=float,
@@ -128,14 +126,21 @@ def output_profile(src: rasterio.DatasetReader) -> dict[str, Any]:
 
 def main() -> None:
     args = parse_args()
-    if not args.classification.exists():
+    paths = ProjectPaths(args.config)
+
+    classification = args.classification or paths.classification
+    confidence = args.confidence or paths.classification_confidence
+    output = args.output or paths.classification_clean
+    info_path = args.info or paths.postprocess_info
+
+    if not classification.exists():
         raise FileNotFoundError(
-            f"Missing classification raster: {args.classification}. "
+            f"Missing classification raster: {classification}. "
             "Run python -m pipeline.crop_classification.03_predict_classify first."
         )
-    if not args.confidence.exists():
+    if not confidence.exists():
         raise FileNotFoundError(
-            f"Missing confidence raster: {args.confidence}. "
+            f"Missing confidence raster: {confidence}. "
             "Run python -m pipeline.crop_classification.03_predict_classify first."
         )
     if not 0.0 <= args.min_confidence <= 1.0:
@@ -143,10 +148,10 @@ def main() -> None:
     if args.min_patch_pixels < 0:
         raise ValueError("--min-patch-pixels must be >= 0.")
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.info.parent.mkdir(parents=True, exist_ok=True)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    info_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with rasterio.open(args.classification) as class_src, rasterio.open(args.confidence) as conf_src:
+    with rasterio.open(classification) as class_src, rasterio.open(confidence) as conf_src:
         validate_inputs(class_src, conf_src)
         class_nodata = int(class_src.nodata) if class_src.nodata is not None else None
         confidence_nodata = float(conf_src.nodata) if conf_src.nodata is not None else NODATA_CONFIDENCE
@@ -163,14 +168,14 @@ def main() -> None:
             args.connectivity,
         )
 
-        with rasterio.open(args.output, "w", **output_profile(class_src)) as dst:
+        with rasterio.open(output, "w", **output_profile(class_src)) as dst:
             dst.write(cleaned, 1)
             dst.set_band_description(1, "cleaned_crop_class")
 
     info = {
-        "classification": str(args.classification),
-        "confidence": str(args.confidence),
-        "output": str(args.output),
+        "classification": str(classification),
+        "confidence": str(confidence),
+        "output": str(output),
         "nodata_class": None,
         "parameters": {
             "min_confidence": args.min_confidence,
@@ -183,11 +188,11 @@ def main() -> None:
             "Small-patch sieving is optional and controlled by min_patch_pixels."
         ),
     }
-    with open(args.info, "w", encoding="utf-8") as f:
+    with open(info_path, "w", encoding="utf-8") as f:
         json.dump(info, f, indent=2, ensure_ascii=False)
 
-    print(f"Saved cleaned classification: {args.output}")
-    print(f"Saved postprocess info: {args.info}")
+    print(f"Saved cleaned classification: {output}")
+    print(f"Saved postprocess info: {info_path}")
 
 
 if __name__ == "__main__":

@@ -28,8 +28,8 @@
     "3": "Maize",
     "4": "Rapeseed"
   },
-  "training_data_file": "data\\exported\\pixel_training_data.npz",
-  "n_samples": 21294,
+  "training_data_file": "data\\exported\\shared\\training\\pixel_training_data.npz",
+  "n_samples": 20390,
   "n_features": 18,
   "classes": [
     0,
@@ -38,8 +38,8 @@
     3,
     4
   ],
-  "train_accuracy": 0.651247431758145,
-  "test_accuracy": 0.41606010800657434,
+  "train_accuracy": 0.6581657675331045,
+  "test_accuracy": 0.49264345267287885,
   "training_source": "rice/maize/wheat/rapeseed specialty maps",
   "note": "Pixel-level model trained from rice/maize/wheat/rapeseed specialty maps."
 }

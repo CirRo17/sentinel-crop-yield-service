@@ -3,8 +3,8 @@
 from pathlib import Path
 
 
-DEFAULT_MODEL_PATH = Path(__file__).resolve().parents[1] / "models" / "crop_classifier.joblib"
-DEFAULT_MODEL_INFO_PATH = DEFAULT_MODEL_PATH.with_name("model_info.json")
+DEFAULT_MODEL_PATH = Path(__file__).resolve().parents[2] / "models" / "crop_classification_classifier.joblib"
+DEFAULT_MODEL_INFO_PATH = DEFAULT_MODEL_PATH.with_name("crop_classification_model_info.json")
 
 # 早期统计型模型使用的特征名，保留用于兼容旧模型和历史产物。
 MODEL_FEATURE_NAMES = [

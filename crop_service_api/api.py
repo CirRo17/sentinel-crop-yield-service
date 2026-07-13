@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import importlib
@@ -43,11 +43,11 @@ attach_raster_majority_to_parcels = importlib.import_module(
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 DATA_UPLOADS = ROOT / "data" / "uploads"
-API_PREDICTIONS = ROOT / "data" / "output" / "api_predictions"
 DATA_OUTPUT = ROOT / "data" / "output"
+API_PREDICTIONS = DATA_OUTPUT / "runtime" / "api_predictions"
 DATA_EXPORTED = ROOT / "data" / "exported"
-MODEL_FILE = ROOT / "models" / "crop_classifier.joblib"
-MODEL_INFO_FILE = ROOT / "models" / "model_info.json"
+MODEL_FILE = ROOT / "models" / "crop_classification_classifier.joblib"
+MODEL_INFO_FILE = ROOT / "models" / "crop_classification_model_info.json"
 HOME_TEMPLATE = Path(__file__).with_name("home.html")
 CLASS_MAPPING_FILE = ROOT / "configs" / "class_mapping.yaml"
 
@@ -55,6 +55,10 @@ task_store: dict[str, dict[str, Any]] = {}
 task_lock = threading.Lock()
 yield_task_store: dict[str, dict[str, Any]] = {}
 yield_task_lock = threading.Lock()
+growth_task_store: dict[str, dict[str, Any]] = {}
+growth_task_lock = threading.Lock()
+pest_task_store: dict[str, dict[str, Any]] = {}
+pest_task_lock = threading.Lock()
 
 
 class UploadResponse(BaseModel):
@@ -147,6 +151,57 @@ class YieldStatusResponse(BaseModel):
     message: Optional[str] = Field(None, description="状态或错误消息。")
     summary: Optional[dict[str, Any]] = Field(None, description="估产汇总，完成时返回。")
     crops: Optional[list[YieldCropResult]] = Field(None, description="分作物结果。")
+    downloads: Optional[dict[str, str]] = Field(None, description="下载链接。")
+
+
+# ---------------------------------------------------------------------------
+# 长势监测 (growth) 相关模型
+# ---------------------------------------------------------------------------
+
+class GrowthStartRequest(BaseModel):
+    config: str = Field("configs/default.yaml", description="配置文件路径。")
+    feature_stack: Optional[str] = Field(None, description="当前特征栈路径，不传则从配置推导。")
+    metadata: Optional[str] = Field(None, description="当前特征栈 metadata。")
+    parcels: Optional[str] = Field(None, description="地块 Shapefile，不传则从配置推导。")
+    target_year: int = Field(..., description="监测目标年份。")
+    target_month: int = Field(..., ge=1, le=12, description="监测目标月份。")
+    baseline_manifest: Optional[str] = Field(None, description="Step1 基准清单，不传则尝试默认路径。")
+
+class GrowthStartResponse(BaseModel):
+    task_id: str = Field(..., description="长势监测任务 ID。")
+    status: str = Field(default="queued")
+
+class GrowthStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    progress: float = 0.0
+    message: Optional[str] = None
+    step2_stats: Optional[dict[str, Any]] = Field(None, description="像元级统计。")
+    summary: Optional[dict[str, Any]] = Field(None, description="地块级汇总。")
+    downloads: Optional[dict[str, str]] = Field(None, description="下载链接。")
+
+
+# ---------------------------------------------------------------------------
+# 病虫害检测 (pest) 相关模型
+# ---------------------------------------------------------------------------
+
+class PestStartRequest(BaseModel):
+    config: str = Field("configs/default.yaml", description="配置文件路径。")
+    inputs_manifest: Optional[str] = Field(None, description="Step1 输入清单路径。")
+    feature_stack: Optional[str] = Field(None, description="当前特征栈，不传则从 manifest 推导。")
+    metadata: Optional[str] = Field(None, description="当前特征栈 metadata。")
+    parcels: Optional[str] = Field(None, description="地块 Shapefile，不传则从配置推导。")
+
+class PestStartResponse(BaseModel):
+    task_id: str = Field(..., description="病虫害检测任务 ID。")
+    status: str = Field(default="queued")
+
+class PestStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    progress: float = 0.0
+    message: Optional[str] = None
+    step2_stats: Optional[dict[str, Any]] = Field(None, description="像元级评分统计。")
     downloads: Optional[dict[str, str]] = Field(None, description="下载链接。")
 
 
@@ -1081,6 +1136,162 @@ def _run_yield_estimation(yield_task_id: str, params: YieldEstimateRequest) -> N
             yield_task_store[yield_task_id]["message"] = str(exc)[:500]
 
 
+# ---------------------------------------------------------------------------
+# 长势监测后台任务
+# ---------------------------------------------------------------------------
+
+def _run_growth(task_id: str, params: GrowthStartRequest) -> None:
+    import subprocess
+
+    try:
+        with growth_task_lock:
+            growth_task_store[task_id]["status"] = "running"
+            growth_task_store[task_id]["progress"] = 10.0
+            growth_task_store[task_id]["message"] = "Running pixel z-score analysis."
+
+        step2_cmd = [
+            "python", "-m", "pipeline.growth_monitoring.02_pixel_zscore",
+            "--config", params.config,
+            "--target-year", str(params.target_year),
+            "--target-month", str(params.target_month),
+        ]
+        if params.feature_stack:
+            step2_cmd.extend(["--feature-stack", params.feature_stack])
+        if params.metadata:
+            step2_cmd.extend(["--metadata", params.metadata])
+        if params.parcels:
+            step2_cmd.extend(["--parcels", params.parcels])
+        if params.baseline_manifest:
+            step2_cmd.extend(["--baseline-manifest", params.baseline_manifest])
+
+        result = subprocess.run(step2_cmd, capture_output=True, text=True, timeout=600, cwd=str(ROOT))
+        if result.returncode != 0:
+            raise RuntimeError(f"Step2 failed: {result.stderr[-500:] or result.stdout[-500:]}")
+
+        with growth_task_lock:
+            growth_task_store[task_id]["progress"] = 60.0
+            growth_task_store[task_id]["message"] = "Running parcel-level grading."
+
+        step3_cmd = [
+            "python", "-m", "pipeline.growth_monitoring.03_parcel_grade",
+            "--config", params.config,
+        ]
+        if params.parcels:
+            step3_cmd.extend(["--parcels", params.parcels])
+
+        result = subprocess.run(step3_cmd, capture_output=True, text=True, timeout=300, cwd=str(ROOT))
+        if result.returncode != 0:
+            raise RuntimeError(f"Step3 failed: {result.stderr[-500:] or result.stdout[-500:]}")
+
+        # 读取统计结果
+        step2_stats_path = ROOT / "data" / "output" / "growth_monitoring" / "growth_step2_stats.json"
+        step3_summary_path = ROOT / "data" / "output" / "growth_monitoring" / "parcel_growth_summary.json"
+        step3_csv = ROOT / "data" / "output" / "growth_monitoring" / "parcel_growth.csv"
+
+        step2_stats = None
+        summary = None
+        if step2_stats_path.exists():
+            with open(step2_stats_path, encoding="utf-8") as f:
+                step2_stats = json.load(f)
+        if step3_summary_path.exists():
+            with open(step3_summary_path, encoding="utf-8") as f:
+                summary = json.load(f)
+
+        downloads = {}
+        for name, path in [
+            ("step2_stats", step2_stats_path),
+            ("step3_summary", step3_summary_path),
+            ("step3_csv", step3_csv),
+        ]:
+            if path.exists():
+                downloads[name] = f"/api/growth/download/{task_id}?format={name}"
+
+        with growth_task_lock:
+            growth_task_store[task_id]["status"] = "completed"
+            growth_task_store[task_id]["progress"] = 100.0
+            growth_task_store[task_id]["message"] = "Completed."
+            growth_task_store[task_id]["step2_stats"] = step2_stats
+            growth_task_store[task_id]["summary"] = summary
+            growth_task_store[task_id]["downloads"] = downloads
+    except Exception as exc:
+        with growth_task_lock:
+            growth_task_store[task_id]["status"] = "failed"
+            growth_task_store[task_id]["progress"] = 100.0
+            growth_task_store[task_id]["message"] = str(exc)[:500]
+
+
+# ---------------------------------------------------------------------------
+# 病虫害检测后台任务
+# ---------------------------------------------------------------------------
+
+def _run_pest(task_id: str, params: PestStartRequest) -> None:
+    import subprocess
+
+    try:
+        with pest_task_lock:
+            pest_task_store[task_id]["status"] = "running"
+            pest_task_store[task_id]["progress"] = 10.0
+            pest_task_store[task_id]["message"] = "Running pixel stress score analysis."
+
+        step2_cmd = [
+            "python", "-m", "pipeline.pest_detect.02_pixel_stress_score",
+        ]
+        if params.inputs_manifest:
+            step2_cmd.extend(["--inputs-manifest", params.inputs_manifest])
+        if params.feature_stack:
+            step2_cmd.extend(["--feature-stack", params.feature_stack])
+        if params.metadata:
+            step2_cmd.extend(["--metadata", params.metadata])
+
+        result = subprocess.run(step2_cmd, capture_output=True, text=True, timeout=600, cwd=str(ROOT))
+        if result.returncode != 0:
+            raise RuntimeError(f"Step2 failed: {result.stderr[-500:] or result.stdout[-500:]}")
+
+        with pest_task_lock:
+            pest_task_store[task_id]["progress"] = 60.0
+            pest_task_store[task_id]["message"] = "Running parcel-level pest grading."
+
+        step3_cmd = [
+            "python", "-m", "pipeline.pest_detect.03_parcel_pest_stress_grade",
+            "--config", params.config,
+        ]
+        if params.parcels:
+            step3_cmd.extend(["--parcels", params.parcels])
+
+        result = subprocess.run(step3_cmd, capture_output=True, text=True, timeout=300, cwd=str(ROOT))
+        if result.returncode != 0:
+            raise RuntimeError(f"Step3 failed: {result.stderr[-500:] or result.stdout[-500:]}")
+
+        # 读取统计结果
+        step2_stats_path = ROOT / "data" / "output" / "pest_detect" / "pixel" / "pest_step2_stats.json"
+        step3_shp = ROOT / "data" / "output" / "pest_detect" / "parcel" / "parcel_pest_stress_grade.shp"
+
+        step2_stats = None
+        if step2_stats_path.exists():
+            with open(step2_stats_path, encoding="utf-8") as f:
+                step2_stats = json.load(f)
+
+        downloads = {}
+        for name, path in [
+            ("step2_stats", step2_stats_path),
+            ("step3_shp", step3_shp),
+        ]:
+            if path.exists():
+                downloads[name] = f"/api/pest/download/{task_id}?format={name}"
+
+        with pest_task_lock:
+            pest_task_store[task_id]["status"] = "completed"
+            pest_task_store[task_id]["progress"] = 100.0
+            pest_task_store[task_id]["message"] = "Completed."
+            pest_task_store[task_id]["step2_stats"] = step2_stats
+            pest_task_store[task_id]["downloads"] = downloads
+    except Exception as exc:
+        with pest_task_lock:
+            pest_task_store[task_id]["status"] = "failed"
+            pest_task_store[task_id]["progress"] = 100.0
+            pest_task_store[task_id]["message"] = str(exc)[:500]
+
+
 def _portal_html(request: Request) -> str:
     root_path = request.scope.get("root_path", "")
     host_base = str(request.base_url).rstrip("/")
@@ -1094,8 +1305,8 @@ def _portal_html(request: Request) -> str:
 
 app = FastAPI(
     title="作物分类与估产服务",
-    version="0.6.0",
-    description="作物分类与估产 Web API：上传影像 → 分类推理 → 产量估算，端到端遥感作物监测。",
+    version="0.7.0",
+    description="作物分类、长势监测、病虫害检测与估产 Web API。",
 )
 
 
@@ -1324,30 +1535,30 @@ def api_prediction_metadata(job_id: str) -> dict[str, Any]:
 @app.get("/reports/prediction", tags=["Reports"], summary="获取预测报告")
 def report_prediction() -> dict[str, Any]:
     path = _existing_file(
-        "data/output/prediction_info.json",
-        "data/output/prediction_info_2025_07_test.json",
+        "data/output/crop_classification/prediction_info.json",
+        "data/output/crop_classification/prediction_info_2025_07_test.json",
     )
     return _report_json(path)
 
 
 @app.get("/reports/postprocess", tags=["Reports"], summary="获取后处理报告")
 def report_postprocess() -> dict[str, Any]:
-    path = _existing_file("data/output/parcel_postprocess/caobuhu_parcel_majority_summary.json")
+    path = _existing_file("data/output/parcel_postprocess/parcel_majority_summary.json")
     return _report_json(path)
 
 
 @app.get("/reports/accuracy", tags=["Reports"], summary="获取精度评价报告")
 def report_accuracy() -> dict[str, Any]:
-    path = _existing_file("data/output/accuracy_report_2025_07_selfcheck.json")
+    path = _existing_file("data/output/accuracy_eval/accuracy_report_2025_07_selfcheck.json")
     return _report_json(path)
 
 
 @app.get("/maps/summary", tags=["Maps"], summary="获取分类面积汇总")
 def maps_summary() -> dict[str, Any]:
     path = _existing_file(
-        "data/output/crop_classification_2025_07_test_clean.tif",
-        "data/output/crop_classification.tif",
-        "data/output/crop_classification_2025_07_test.tif",
+        "data/output/crop_classification/crop_classification_2025_07_test_clean.tif",
+        "data/output/crop_classification/crop_classification.tif",
+        "data/output/crop_classification/crop_classification_2025_07_test.tif",
     )
     return _map_summary(path)
 
@@ -1436,6 +1647,126 @@ def yield_download(yield_task_id: str, format: str = "metadata") -> FileResponse
     return FileResponse(path, filename=path.name, media_type="application/json")
 
 
+# ---------------------------------------------------------------------------
+# 长势监测 (growth) 端点
+# ---------------------------------------------------------------------------
+
+@app.post("/api/growth/start", response_model=GrowthStartResponse, tags=["Growth"], summary="启动长势监测")
+def growth_start(body: GrowthStartRequest) -> GrowthStartResponse:
+    task_id = "growth_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+    with growth_task_lock:
+        growth_task_store[task_id] = {"status": "queued", "progress": 0.0, "message": "Queued."}
+
+    threading.Thread(target=_run_growth, args=(task_id, body), daemon=True).start()
+    return GrowthStartResponse(task_id=task_id, status="queued")
+
+
+@app.get("/api/growth/status/{task_id}", response_model=GrowthStatusResponse, tags=["Growth"], summary="查询长势监测状态")
+def growth_status(task_id: str) -> GrowthStatusResponse:
+    with growth_task_lock:
+        task = dict(growth_task_store.get(task_id) or {})
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在。")
+    return GrowthStatusResponse(
+        task_id=task_id,
+        status=task.get("status", "unknown"),
+        progress=float(task.get("progress", 0.0)),
+        message=task.get("message"),
+        step2_stats=task.get("step2_stats"),
+        summary=task.get("summary"),
+        downloads=task.get("downloads"),
+    )
+
+
+@app.get("/api/growth/tasks", tags=["Growth"], summary="列出长势监测任务")
+def growth_tasks() -> dict[str, Any]:
+    with growth_task_lock:
+        tasks = [
+            {"task_id": tid, "status": t.get("status"), "progress": t.get("progress"), "message": t.get("message")}
+            for tid, t in sorted(growth_task_store.items(), reverse=True)
+        ]
+    return {"tasks": tasks}
+
+
+@app.get("/api/growth/download/{task_id}", tags=["Growth"], summary="下载长势监测结果")
+def growth_download(task_id: str, format: str = "step2_stats") -> FileResponse:
+    with growth_task_lock:
+        task = growth_task_store.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在。")
+    if task.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="任务尚未完成。")
+
+    file_map = {
+        "step2_stats": ROOT / "data" / "output" / "growth_monitoring" / "growth_step2_stats.json",
+        "step3_summary": ROOT / "data" / "output" / "growth_monitoring" / "parcel_growth_summary.json",
+        "step3_csv": ROOT / "data" / "output" / "growth_monitoring" / "parcel_growth.csv",
+    }
+    path = file_map.get(format)
+    if path is None or not path.exists():
+        raise HTTPException(status_code=404, detail=f"文件不存在：{format}")
+    return FileResponse(path, filename=path.name)
+
+
+# ---------------------------------------------------------------------------
+# 病虫害检测 (pest) 端点
+# ---------------------------------------------------------------------------
+
+@app.post("/api/pest/start", response_model=PestStartResponse, tags=["Pest"], summary="启动病虫害检测")
+def pest_start(body: PestStartRequest) -> PestStartResponse:
+    task_id = "pest_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+    with pest_task_lock:
+        pest_task_store[task_id] = {"status": "queued", "progress": 0.0, "message": "Queued."}
+
+    threading.Thread(target=_run_pest, args=(task_id, body), daemon=True).start()
+    return PestStartResponse(task_id=task_id, status="queued")
+
+
+@app.get("/api/pest/status/{task_id}", response_model=PestStatusResponse, tags=["Pest"], summary="查询病虫害检测状态")
+def pest_status(task_id: str) -> PestStatusResponse:
+    with pest_task_lock:
+        task = dict(pest_task_store.get(task_id) or {})
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在。")
+    return PestStatusResponse(
+        task_id=task_id,
+        status=task.get("status", "unknown"),
+        progress=float(task.get("progress", 0.0)),
+        message=task.get("message"),
+        step2_stats=task.get("step2_stats"),
+        downloads=task.get("downloads"),
+    )
+
+
+@app.get("/api/pest/tasks", tags=["Pest"], summary="列出病虫害检测任务")
+def pest_tasks() -> dict[str, Any]:
+    with pest_task_lock:
+        tasks = [
+            {"task_id": tid, "status": t.get("status"), "progress": t.get("progress"), "message": t.get("message")}
+            for tid, t in sorted(pest_task_store.items(), reverse=True)
+        ]
+    return {"tasks": tasks}
+
+
+@app.get("/api/pest/download/{task_id}", tags=["Pest"], summary="下载病虫害检测结果")
+def pest_download(task_id: str, format: str = "step2_stats") -> FileResponse:
+    with pest_task_lock:
+        task = pest_task_store.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在。")
+    if task.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="任务尚未完成。")
+
+    file_map = {
+        "step2_stats": ROOT / "data" / "output" / "pest_detect" / "pixel" / "pest_step2_stats.json",
+        "step3_shp": ROOT / "data" / "output" / "pest_detect" / "parcel" / "parcel_pest_stress_grade.shp",
+    }
+    path = file_map.get(format)
+    if path is None or not path.exists():
+        raise HTTPException(status_code=404, detail=f"文件不存在：{format}")
+    return FileResponse(path, filename=path.name)
+
+
 @app.websocket("/ws/infer/{task_id}")
 async def ws_infer_status(websocket: WebSocket, task_id: str) -> None:
     await websocket.accept()
@@ -1469,5 +1800,4 @@ async def ws_infer_status(websocket: WebSocket, task_id: str) -> None:
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def home(request: Request) -> str:
     return _portal_html(request)
-
 

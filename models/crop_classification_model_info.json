@@ -1,0 +1,51 @@
+{
+  "model_type": "RandomForestClassifier",
+  "feature_names": [
+    "t1_blue",
+    "t1_green",
+    "t1_red",
+    "t1_rededge",
+    "t1_nir",
+    "t1_swir",
+    "t1_ndvi",
+    "t1_ndwi",
+    "t1_evi",
+    "t1_ndre",
+    "t1_ndmi",
+    "t1_nbr",
+    "t2_blue",
+    "t2_green",
+    "t2_red",
+    "t2_rededge",
+    "t2_nir",
+    "t2_swir",
+    "t2_ndvi",
+    "t2_ndwi",
+    "t2_evi",
+    "t2_ndre",
+    "t2_ndmi",
+    "t2_nbr"
+  ],
+  "feature_schema_hash": "33db02d14e67ee03f1bc3095dbbda941f3eabbd4",
+  "label_mapping": {
+    "0": "Others",
+    "1": "Rice",
+    "2": "Wheat",
+    "3": "Maize",
+    "4": "Rapeseed"
+  },
+  "training_data_file": "data\\exported\\shared\\training\\tuanlinpu_2026_06_pixel_training_data_t49req.npz",
+  "n_samples": 20390,
+  "n_features": 24,
+  "classes": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "train_accuracy": 0.7069641981363414,
+  "test_accuracy": 0.5468366846493379,
+  "training_source": "rice/maize/wheat/rapeseed specialty maps",
+  "note": "Pixel-level model trained from rice/maize/wheat/rapeseed specialty maps."
+}

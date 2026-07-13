@@ -1,4 +1,4 @@
-﻿"""训练作物分类随机森林模型。
+"""训练作物分类随机森林模型。
 
 读取 01_prepare_samples.py 生成的像素级训练样本，训练包含标准化和随机森林
 分类器的 sklearn Pipeline，并写出模型文件和模型信息。特征名从训练样本
@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -20,22 +21,16 @@ from sklearn.preprocessing import StandardScaler
 
 from crop_domain.labels import TARGET_LABELS
 from image_core.feature_schema import duplicate_names, schema_hash
+from configs.paths import ProjectPaths
 
 
-DATA_DIR = Path("data/exported")
-MODELS_DIR = Path("models")
-TRAINING_DATA_FILE = DATA_DIR / "pixel_training_data.npz"
-MODEL_FILE = MODELS_DIR / "crop_classifier.joblib"
-MODEL_INFO_FILE = MODELS_DIR / "model_info.json"
-
-
-def _load_training_data() -> tuple[np.ndarray, np.ndarray, list[str], str]:
-    if not TRAINING_DATA_FILE.exists():
+def _load_training_data(training_file: Path) -> tuple[np.ndarray, np.ndarray, list[str], str]:
+    if not training_file.exists():
         raise FileNotFoundError(
-            f"Missing {TRAINING_DATA_FILE}. Run python -m pipeline.crop_classification.01_prepare_samples first."
+            f"Missing {training_file}. Run python -m pipeline.crop_classification.01_prepare_samples first."
         )
 
-    data = np.load(TRAINING_DATA_FILE, allow_pickle=True)
+    data = np.load(training_file, allow_pickle=True)
     X = data["X"].astype("float32")
     y = data["y"]
 
@@ -44,7 +39,7 @@ def _load_training_data() -> tuple[np.ndarray, np.ndarray, list[str], str]:
     else:
         raise ValueError(
             "training_data.npz is missing 'feature_names'. "
-            "Re-run step 04 to regenerate."
+            "Re-run step 01 to regenerate."
         )
 
     if X.ndim != 2 or X.shape[1] != len(feature_names):
@@ -63,15 +58,15 @@ def _load_training_data() -> tuple[np.ndarray, np.ndarray, list[str], str]:
     return X, y, feature_names, source
 
 
-def train_model() -> None:
-    MODELS_DIR.mkdir(exist_ok=True)
+def train_model(training_file: Path, model_file: Path, model_info_file: Path) -> None:
+    model_file.parent.mkdir(exist_ok=True)
 
     print("=" * 60)
     print("Train crop classifier (pixel-level)")
     print("=" * 60)
 
-    X, y, feature_names, training_source = _load_training_data()
-    print(f"Training data: {TRAINING_DATA_FILE}")
+    X, y, feature_names, training_source = _load_training_data(training_file)
+    print(f"Training data: {training_file}")
     print(f"Training source: {training_source}")
     print(f"Samples: {len(X):,}")
     print(f"Features: {X.shape[1]}  ({', '.join(feature_names)})")
@@ -81,7 +76,6 @@ def train_model() -> None:
         name = TARGET_LABELS.get(int(cls), str(cls))
         print(f"  class {cls} ({name}): {cnt:,} samples")
 
-    # stratify requires 鈮? samples per class; skip when sample counts are low.
     unique, counts = np.unique(y, return_counts=True)
     can_stratify = bool(np.all(counts >= 2))
     split_kwargs: dict = dict(test_size=0.2, random_state=42)
@@ -89,8 +83,6 @@ def train_model() -> None:
         split_kwargs["stratify"] = y
     X_train, X_test, y_train, y_test = train_test_split(X, y, **split_kwargs)
 
-    # Pipeline: StandardScaler -> RandomForest
-    # StandardScaler handles mixed-source reflectance / DN ranges.
     n_samples = len(X_train)
     model = Pipeline([
         ("scaler", StandardScaler()),
@@ -125,14 +117,14 @@ def train_model() -> None:
         )
     )
 
-    joblib.dump(model, MODEL_FILE)
+    joblib.dump(model, model_file)
 
     model_info = {
         "model_type": "RandomForestClassifier",
         "feature_names": feature_names,
         "feature_schema_hash": schema_hash(feature_names),
         "label_mapping": {str(key): value for key, value in TARGET_LABELS.items()},
-        "training_data_file": str(TRAINING_DATA_FILE),
+        "training_data_file": str(training_file),
         "n_samples": int(len(X)),
         "n_features": int(X.shape[1]),
         "classes": [int(label) for label in sorted(np.unique(y).tolist())],
@@ -141,15 +133,26 @@ def train_model() -> None:
         "training_source": training_source,
         "note": f"Pixel-level model trained from {training_source}.",
     }
-    with open(MODEL_INFO_FILE, "w", encoding="utf-8") as f:
+    with open(model_info_file, "w", encoding="utf-8") as f:
         json.dump(model_info, f, indent=2, ensure_ascii=True)
 
-    print(f"\nSaved model: {MODEL_FILE}")
-    print(f"Saved model info: {MODEL_INFO_FILE}")
+    print(f"\nSaved model: {model_file}")
+    print(f"Saved model info: {model_info_file}")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="训练作物分类随机森林模型。")
+    parser.add_argument("--config", type=Path, default=Path("configs/default.yaml"))
+    parser.add_argument("--training-data", type=Path, default=None)
+    parser.add_argument("--model", type=Path, default=None)
+    parser.add_argument("--model-info", type=Path, default=None)
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    train_model()
-
-
-
+    args = parse_args()
+    paths = ProjectPaths(args.config)
+    training = args.training_data or paths.training_data
+    model = args.model or paths.model_file
+    model_info = args.model_info or paths.model_info
+    train_model(training, model, model_info)

@@ -5,9 +5,9 @@
 
 示例：
     python -m pipeline.yield_estimation.01_yield_estimation \
-        --classification data/output/crop_classification_clean.tif \
-        --feature-stack data/exported/feature_stack.tif \
-        --metadata data/exported/feature_stack_metadata.json \
+        --classification data/output/crop_classification/crop_classification_clean.tif \
+        --feature-stack data/exported/feature_stack/feature_stack_multiband.tif \
+        --metadata data/exported/feature_stack/feature_stack_multiband_metadata.json \
         --timepoint t2
 """
 
@@ -157,13 +157,6 @@ def uncertainty(crop: str, mean_yield: float):
 # 管线适配
 # ===================================================================
 
-DEFAULT_CLASSIFICATION = Path("data/output/crop_classification_clean.tif")
-DEFAULT_FEATURE_STACK = Path("data/exported/feature_stack.tif")
-DEFAULT_METADATA = Path("data/exported/feature_stack_metadata.json")
-DEFAULT_OUTPUT_DIR = Path("data/output")
-DEFAULT_STATS = Path("data/output/yield_stats.json")
-
-
 # ---------------------------------------------------------------------------
 # 参数解析
 # ---------------------------------------------------------------------------
@@ -172,34 +165,35 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="基于分类结果和植被指数估算作物产量。"
     )
+    parser.add_argument("--config", type=Path, default=Path("configs/default.yaml"))
     parser.add_argument(
         "--classification",
         type=Path,
-        default=DEFAULT_CLASSIFICATION,
+        default=None,
         help="分类或后处理输出的分类栅格。",
     )
     parser.add_argument(
         "--feature-stack",
         type=Path,
-        default=DEFAULT_FEATURE_STACK,
+        default=None,
         help="特征栈 GeoTIFF。",
     )
     parser.add_argument(
         "--metadata",
         type=Path,
-        default=DEFAULT_METADATA,
+        default=None,
         help="特征栈元数据 JSON。",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=DEFAULT_OUTPUT_DIR,
+        default=None,
         help="产量栅格输出目录。",
     )
     parser.add_argument(
         "--stats",
         type=Path,
-        default=DEFAULT_STATS,
+        default=None,
         help="产量统计 JSON 输出路径。",
     )
     parser.add_argument(
@@ -330,25 +324,32 @@ def _pixel_area_ha(transform) -> float:
 
 def main() -> None:
     args = parse_args()
+    paths = ProjectPaths(args.config)
+
+    classification_path = classification_path or paths.classification_clean
+    feature_stack = feature_stack or paths.feature_stack
+    metadata_path = metadata_path or paths.feature_stack_metadata
+    output_dir = output_dir or paths.yield_dir
+    stats = stats or paths.yield_stats
 
     for path, label in [
-        (args.classification, "classification"),
-        (args.feature_stack, "feature-stack"),
+        (classification_path, "classification"),
+        (feature_stack, "feature-stack"),
     ]:
         if not path.exists():
             raise FileNotFoundError(f"{label} 文件不存在：{path}")
 
-    print(f"读取分类栅格：{args.classification}")
-    with rasterio.open(args.classification) as src:
+    print(f"读取分类栅格：{classification_path}")
+    with rasterio.open(classification_path) as src:
         classification = src.read(1, masked=False).astype("int16")
         class_profile = src.profile.copy()
         class_transform = src.transform
 
     pixel_area = _pixel_area_ha(class_transform)
-    band_names = _load_band_names(args.metadata)
+    band_names = _load_band_names(metadata_path)
     print(f"特征栈共 {len(band_names)} 个波段")
 
-    with rasterio.open(args.feature_stack) as fs_src:
+    with rasterio.open(feature_stack) as fs_src:
         if args.index == "lai":
             if args.timepoint is None:
                 raise ValueError("LAI 模式需要指定 --timepoint。")
@@ -374,7 +375,7 @@ def main() -> None:
             ci = None
             print(f"NDVI 均值使用 {len(ndvi_arrays)} 个时相")
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     yield_profile = class_profile.copy()
     yield_profile.update(dtype="float32", nodata=-9999.0, compress="deflate", predictor=3)
 
@@ -441,7 +442,7 @@ def main() -> None:
         std_yield = float(np.std(yield_values))
 
         crop_yield_raster = np.where(valid_yield, pixel_yield, yield_profile["nodata"]).astype("float32")
-        out_path = args.output_dir / f"yield_{crop_name}.tif"
+        out_path = output_dir / f"yield_{crop_name}.tif"
         with rasterio.open(out_path, "w", **yield_profile) as dst:
             dst.write(crop_yield_raster, 1)
             dst.set_band_description(1, f"yield_{crop_name}_kg_ha")
@@ -474,7 +475,7 @@ def main() -> None:
         crop_results.append(crop_result)
         print(f"  {label}: 面积 {area_ha:.1f} ha, 均产 {mean_yield:.1f} kg/ha, 总产 {total_yield:.0f} kg")
 
-    combined_out = args.output_dir / "yield_all.tif"
+    combined_out = output_dir / "yield_all.tif"
     combined_data = np.where(np.isfinite(combined_yield), combined_yield, yield_profile["nodata"]).astype("float32")
     with rasterio.open(combined_out, "w", **yield_profile) as dst:
         dst.write(combined_data, 1)
@@ -496,21 +497,21 @@ def main() -> None:
         "outputs": {
             "combined": str(combined_out),
             "per_crop": {
-                r["crop_name"]: str(args.output_dir / f"yield_{r['crop_name']}.tif")
+                r["crop_name"]: str(output_dir / f"yield_{r['crop_name']}.tif")
                 for r in crop_results
                 if r.get("crop_name")
             },
         },
     }
 
-    args.stats.parent.mkdir(parents=True, exist_ok=True)
-    with open(args.stats, "w", encoding="utf-8") as f:
+    stats.parent.mkdir(parents=True, exist_ok=True)
+    with open(stats, "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=2, ensure_ascii=False)
 
     print("\n=== 估产完成 ===")
     print(f"总种植面积：{total_area:.1f} ha")
     print(f"总产量：{total_yield_all:.0f} kg")
-    print(f"统计输出：{args.stats}")
+    print(f"统计输出：{stats}")
     print(f"产量栅格：{combined_out}")
 if __name__ == "__main__":
     main()

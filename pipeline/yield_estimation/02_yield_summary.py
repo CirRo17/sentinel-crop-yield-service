@@ -5,12 +5,12 @@
 
 示例：
     python -m pipeline.yield_estimation.02_yield_summary \
-        --yield-stats data/output/yield_stats.json
+        --yield-stats data/output/yield_estimation/yield_stats.json
 
     python -m pipeline.yield_estimation.02_yield_summary \
-        --yield-raster data/output/yield_all.tif \
-        --parcels shp_Files/Caobuhu_Parcel_shp/草埠湖镇修改.shp \
-        --classification data/output/crop_classification_clean.tif
+        --yield-raster data/output/yield_estimation/yield_all.tif \
+        --parcels data/output/parcel_postprocess/parcel_majority.shp \
+        --classification data/output/crop_classification/crop_classification_clean.tif
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from rasterio.mask import mask
 import importlib
 
 from crop_domain.labels import TARGET_LABELS
+from configs.paths import ProjectPaths
 
 _yield = importlib.import_module("pipeline.yield_estimation.01_yield_estimation")
 CROP_CODE_TO_NAME = _yield.CROP_CODE_TO_NAME
@@ -37,12 +38,6 @@ CROP_MODELS = _yield.CROP_MODELS
 # 默认路径
 # ---------------------------------------------------------------------------
 
-DEFAULT_YIELD_STATS = Path("data/output/yield_stats.json")
-DEFAULT_YIELD_RASTER = Path("data/output/yield_all.tif")
-DEFAULT_CLASSIFICATION = Path("data/output/crop_classification_clean.tif")
-DEFAULT_PARCELS = Path("shp_Files/Caobuhu_Parcel_shp/草埠湖镇修改.shp")
-DEFAULT_OUTPUT = Path("data/output/yield_summary.json")
-DEFAULT_HTML = Path("data/output/yield_report.html")
 
 
 # ---------------------------------------------------------------------------
@@ -53,22 +48,23 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="汇总产量统计，可选地块级聚合。"
     )
+    parser.add_argument("--config", type=Path, default=Path("configs/default.yaml"))
     parser.add_argument(
         "--yield-stats",
         type=Path,
-        default=DEFAULT_YIELD_STATS,
+        default=None,
         help="估产输出的 yield_stats.json。",
     )
     parser.add_argument(
         "--yield-raster",
         type=Path,
-        default=DEFAULT_YIELD_RASTER,
+        default=None,
         help="估产输出的综合产量栅格，地块模式需要。",
     )
     parser.add_argument(
         "--classification",
         type=Path,
-        default=DEFAULT_CLASSIFICATION,
+        default=None,
         help="分类栅格，地块模式需要。",
     )
     parser.add_argument(
@@ -80,13 +76,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=DEFAULT_OUTPUT,
+        default=None,
         help="汇总 JSON 输出路径。",
     )
     parser.add_argument(
         "--html",
         type=Path,
-        default=DEFAULT_HTML,
+        default=None,
         help="HTML 报告输出路径。",
     )
     return parser.parse_args()
@@ -258,44 +254,52 @@ def _html_report(stats: dict, parcel_results: Optional[list[dict]]) -> str:
 
 def main() -> None:
     args = parse_args()
+    paths = ProjectPaths(args.config)
 
-    if not args.yield_stats.exists():
-        raise FileNotFoundError(f"yield_stats 文件不存在：{args.yield_stats}")
-    with open(args.yield_stats, encoding="utf-8") as f:
+    yield_stats = args.yield_stats or paths.yield_stats
+    yield_raster = yield_raster or paths.yield_raster
+    classification = classification or paths.classification_clean
+    output = output or paths.yield_summary
+    html = html or paths.yield_report_html
+    parcels = parcels
+
+    if not yield_stats.exists():
+        raise FileNotFoundError(f"yield_stats 文件不存在：{yield_stats}")
+    with open(yield_stats, encoding="utf-8") as f:
         stats = json.load(f)
 
     parcel_results = None
-    if args.parcels and args.parcels.exists():
-        print(f"逐地块聚合产量：{args.parcels}")
-        if not args.yield_raster.exists():
-            print(f"  警告：产量栅格不存在（{args.yield_raster}），跳过地块聚合")
-        elif not args.classification.exists():
-            print(f"  警告：分类栅格不存在（{args.classification}），跳过地块聚合")
+    if parcels and parcels.exists():
+        print(f"逐地块聚合产量：{parcels}")
+        if not yield_raster.exists():
+            print(f"  警告：产量栅格不存在（{yield_raster}），跳过地块聚合")
+        elif not classification.exists():
+            print(f"  警告：分类栅格不存在（{classification}），跳过地块聚合")
         else:
-            parcel_results = _parcel_yield_stats(args.yield_raster, args.classification, args.parcels)
+            parcel_results = _parcel_yield_stats(yield_raster, classification, parcels)
             print(f"  完成 {len(parcel_results)} 个地块的产量统计")
 
-    output = {"yield_stats": stats}
+    output_doc = {"yield_stats": stats}
     if parcel_results is not None:
-        output["parcel_yields"] = parcel_results
+        output_doc["parcel_yields"] = parcel_results
         total_from_parcels = sum(
             sum(cd.get("total_yield_kg", 0) for cd in p.get("crops", {}).values())
             for p in parcel_results
         )
-        output["parcel_summary"] = {
+        output_doc["parcel_summary"] = {
             "parcel_count": len(parcel_results),
             "total_yield_from_parcels_kg": total_from_parcels,
         }
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    with open(args.output, "w", encoding="utf-8") as f:
-        json.dump(output, f, indent=2, ensure_ascii=False)
-    print(f"汇总 JSON：{args.output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with open(output, "w", encoding="utf-8") as f:
+        json.dump(output_doc, f, indent=2, ensure_ascii=False)
+    print(f"汇总 JSON：{output}")
 
-    html = _html_report(stats, parcel_results)
-    args.html.parent.mkdir(parents=True, exist_ok=True)
-    args.html.write_text(html, encoding="utf-8")
-    print(f"HTML 报告：{args.html}")
+    html_content = _html_report(stats, parcel_results)
+    html.parent.mkdir(parents=True, exist_ok=True)
+    html.write_text(html_content, encoding="utf-8")
+    print(f"HTML 报告：{html}")
 if __name__ == "__main__":
     main()
 

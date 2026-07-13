@@ -22,10 +22,10 @@ from rasterio.vrt import WarpedVRT
 from crop_domain.labels import TARGET_LABELS
 
 
-DEFAULT_CLASSIFICATION = Path("data/output/crop_classification_clean.tif")
-DEFAULT_REPORT = Path("data/output/accuracy_report.json")
-DEFAULT_CONFUSION = Path("data/output/confusion_matrix.csv")
-DEFAULT_CLASS_ACCURACY = Path("data/output/class_accuracy.csv")
+DEFAULT_CLASSIFICATION = Path("data/output/crop_classification/crop_classification_clean.tif")
+DEFAULT_REPORT = Path("data/output/accuracy_eval/accuracy_report.json")
+DEFAULT_CONFUSION = Path("data/output/accuracy_eval/confusion_matrix.csv")
+DEFAULT_CLASS_ACCURACY = Path("data/output/accuracy_eval/class_accuracy.csv")
 DEFAULT_IGNORE_LABELS = [255]
 
 

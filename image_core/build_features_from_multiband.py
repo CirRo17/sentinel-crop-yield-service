@@ -18,15 +18,11 @@ import rasterio
 from rasterio.features import geometry_mask
 from rasterio.warp import transform_geom
 
-from image_core.spectral import evi, nbr, ndre, ndvi, ndwi
+from image_core.spectral import evi, nbr, ndmi, ndre, ndvi, ndwi
+from configs.paths import ProjectPaths
 
-
-DEFAULT_OUTPUT = Path("data/exported/feature_stack_multiband.tif")
-DEFAULT_METADATA = Path("data/exported/feature_stack_multiband_metadata.json")
-
-REQUIRED_BANDS = ("blue", "green", "red", "rededge", "nir")
-OPTIONAL_BANDS = ("swir",)
-INDEX_BANDS = ("ndvi", "ndwi", "evi", "ndre", "nbr")
+REQUIRED_BANDS = ("blue", "green", "red", "rededge", "nir", "swir")
+INDEX_BANDS = ("ndvi", "ndwi", "evi", "ndre", "ndmi", "nbr")
 
 
 def configure_gdal_proj() -> None:
@@ -53,8 +49,8 @@ def parse_band_map(value: str) -> dict[str, int]:
             raise argparse.ArgumentTypeError(f"无效的波段映射项：{item!r}。格式应为 name=index。")
         name, index = item.split("=", 1)
         name = name.strip().lower()
-        if name not in {*REQUIRED_BANDS, *OPTIONAL_BANDS}:
-            valid = ", ".join([*REQUIRED_BANDS, *OPTIONAL_BANDS])
+        if name not in set(REQUIRED_BANDS):
+            valid = ", ".join(REQUIRED_BANDS)
             raise argparse.ArgumentTypeError(f"未知语义波段 {name!r}。可用名称：{valid}。")
         try:
             band_index = int(index)
@@ -104,23 +100,18 @@ def parse_args() -> argparse.Namespace:
         default="EPSG:4326",
         help="当 AOI 文件没有 CRS 信息时使用的 CRS，默认 EPSG:4326。",
     )
-    parser.add_argument(
-        "--allow-missing-swir",
-        action="store_true",
-        help="允许输入缺少 swir。输出会省略 swir 和 nbr，因此模型也必须按该 9 特征 schema 训练。",
-    )
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--metadata", type=Path, default=DEFAULT_METADATA)
+    parser.add_argument("--config", type=Path, default=Path("configs/default.yaml"))
+    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--metadata", type=Path, default=None)
     return parser.parse_args()
 
 
 def validate_args(args: argparse.Namespace) -> list[str]:
     if args.reflectance_scale <= 0:
         raise ValueError("--reflectance-scale 必须 > 0。")
-    if "swir" not in args.band_map and not args.allow_missing_swir:
+    if "swir" not in args.band_map:
         raise ValueError(
-            "--band-map 未包含 swir。请添加 swir=<band_index>，或传入 --allow-missing-swir，"
-            "并使用输出的 9 特征 schema 进行训练/预测。"
+            "--band-map 未包含 swir，请添加 swir=<band_index>。"
         )
     slots = args.time_slots or [f"t{index}" for index in range(1, len(args.inputs) + 1)]
     if len(slots) != len(args.inputs):
@@ -229,8 +220,8 @@ def add_indices(arrays: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     arrays["ndwi"] = ndwi(arrays["green"], arrays["nir"])
     arrays["evi"] = evi(arrays["nir"], arrays["red"], arrays["blue"])
     arrays["ndre"] = ndre(arrays["nir"], arrays["rededge"])
-    if "swir" in arrays:
-        arrays["nbr"] = nbr(arrays["nir"], arrays["swir"])
+    arrays["ndmi"] = ndmi(arrays["nir"], arrays["swir"])
+    arrays["nbr"] = nbr(arrays["nir"], arrays["swir"])
     return arrays
 
 
@@ -270,6 +261,9 @@ def write_feature_stack(path: Path, arrays: list[np.ndarray], names: list[str], 
 
 def main() -> None:
     args = parse_args()
+    paths = ProjectPaths(args.config)
+    output = args.output or paths.feature_stack
+    metadata_path = args.metadata or paths.feature_stack_metadata
     slots = validate_args(args)
 
     band_arrays: list[np.ndarray] = []
@@ -323,30 +317,29 @@ def main() -> None:
         )
 
     profile = output_profile(args.inputs[0], len(band_arrays))
-    write_feature_stack(args.output, band_arrays, band_names, profile)
+    write_feature_stack(output, band_arrays, band_names, profile)
 
     metadata = {
         "source": "local_multiband_geotiff",
         "inputs": input_metadata,
-        "output": str(args.output),
+        "output": str(output),
         "band_count": len(band_names),
         "band_names": band_names,
         "timepoint_name_mode": "slot",
         "reflectance_scale": args.reflectance_scale,
         "zero_is_nodata": args.zero_is_nodata,
-        "allow_missing_swir": args.allow_missing_swir,
         "aoi_mask": aoi_metadata,
         "notes": (
             "从本地多波段影像构建的标准特征栈。"
             "公开平台单波段 assets 和本地多波段输入都应先转换到该 schema，再交给下游流程。"
         ),
     }
-    args.metadata.parent.mkdir(parents=True, exist_ok=True)
-    with open(args.metadata, "w", encoding="utf-8") as f:
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(metadata_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
 
-    print(f"已保存特征栈：{args.output}")
-    print(f"已保存元数据：{args.metadata}")
+    print(f"已保存特征栈：{output}")
+    print(f"已保存元数据：{metadata_path}")
     print(f"特征波段：{', '.join(band_names)}")
 
 

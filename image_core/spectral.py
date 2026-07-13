@@ -41,6 +41,11 @@ def ndre(nir: np.ndarray, rededge: np.ndarray) -> np.ndarray:
     return safe_ratio(nir, rededge)
 
 
+def ndmi(nir: np.ndarray, swir: np.ndarray) -> np.ndarray:
+    """归一化水分指数 NDMI。"""
+    return safe_ratio(nir, swir)
+
+
 def nbr(nir: np.ndarray, swir: np.ndarray) -> np.ndarray:
-    """归一化燃烧指数 NBR，也可作为水分或残茬相关指数。"""
+    """归一化燃烧指数 NBR。"""
     return safe_ratio(nir, swir)
